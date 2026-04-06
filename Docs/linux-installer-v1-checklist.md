@@ -453,7 +453,9 @@ Status:
 - a first GitHub bootstrap entrypoint now exists at `scripts/deploy/bootstrap-from-web.sh`
 - it can fetch from a public GitHub repo directly
 - it can also clone a private GitHub repo when a token such as `GITHUB_TOKEN` is provided
-- next improvement is to add a more guided non-interactive/server-automation mode on top
+- a first non-interactive installer path now exists through `scripts/deploy/ubuntu/configure.sh`
+- `scripts/deploy/ubuntu/installer.sh` now forwards automation-safe configure arguments
+- next improvement is to make that automation path support env files or installer answer files more elegantly
 
 ### Checklist B. Ubuntu Script Refactor
 

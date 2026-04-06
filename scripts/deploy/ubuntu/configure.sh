@@ -33,6 +33,51 @@ normalize_yes_no() {
   printf 'false'
 }
 
+normalize_profile_key() {
+  local value="${1,,}"
+  case "${value}" in
+    light)
+      printf 'light'
+      ;;
+    balanced|balance)
+      printf 'balanced'
+      ;;
+    high|high-performance|high_performance|performance)
+      printf 'high'
+      ;;
+    *)
+      printf 'balanced'
+      ;;
+  esac
+}
+
+normalize_ollama_mode() {
+  local value="${1,,}"
+  case "${value}" in
+    local)
+      printf 'local'
+      ;;
+    external)
+      printf 'external'
+      ;;
+    *)
+      printf 'local'
+      ;;
+  esac
+}
+
+normalize_security_profile() {
+  local value="${1,,}"
+  case "${value}" in
+    safe)
+      printf 'safe'
+      ;;
+    *)
+      printf 'standard'
+      ;;
+  esac
+}
+
 configure_profile_defaults() {
   case "$1" in
     light)
@@ -84,37 +129,179 @@ ensure_password() {
   done
 }
 
+show_help() {
+  cat <<'EOF'
+Local AI OS Configure Phase
+
+Usage:
+  ./scripts/deploy/ubuntu/configure.sh [options]
+
+Options:
+  --non-interactive                 Run without prompts.
+  --profile <light|balanced|high>   Deployment profile. Default: balanced
+  --ollama-mode <local|external>    Ollama mode. Default: local
+  --ollama-base-url <url>           Required when using external Ollama
+  --security-profile <standard|safe>
+                                    Security profile. Default: standard
+  --admin-password <password>       Required in non-interactive mode
+  --data-root <path>                Host data root. Default: /opt/local-ai-os/data
+  --frontend-port <port>            Default: 3000
+  --backend-port <port>             Default: 8000
+  --qdrant-port <port>              Default: 6333
+  --hostname <hostname>             Optional hostname/domain
+  --ocr-enabled <yes|no>            Default: yes
+  --connector-features-enabled <yes|no>
+                                    Default: yes
+  -h, --help                        Show this help
+EOF
+}
+
+non_interactive=false
+profile_input="balanced"
+ollama_mode="local"
+external_ollama_base_url=""
+security_profile="standard"
+admin_password_override=""
+data_root_override="/opt/local-ai-os/data"
+frontend_port_override="3000"
+backend_port_override="8000"
+qdrant_port_override="6333"
+hostname_or_domain_override=""
+ocr_input="yes"
+connectors_input="yes"
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --non-interactive)
+      non_interactive=true
+      shift
+      ;;
+    --profile)
+      profile_input="${2:-}"
+      shift 2
+      ;;
+    --ollama-mode)
+      ollama_mode="${2:-}"
+      shift 2
+      ;;
+    --ollama-base-url)
+      external_ollama_base_url="${2:-}"
+      shift 2
+      ;;
+    --security-profile)
+      security_profile="${2:-}"
+      shift 2
+      ;;
+    --admin-password)
+      admin_password_override="${2:-}"
+      shift 2
+      ;;
+    --data-root)
+      data_root_override="${2:-}"
+      shift 2
+      ;;
+    --frontend-port)
+      frontend_port_override="${2:-}"
+      shift 2
+      ;;
+    --backend-port)
+      backend_port_override="${2:-}"
+      shift 2
+      ;;
+    --qdrant-port)
+      qdrant_port_override="${2:-}"
+      shift 2
+      ;;
+    --hostname)
+      hostname_or_domain_override="${2:-}"
+      shift 2
+      ;;
+    --ocr-enabled)
+      ocr_input="${2:-}"
+      shift 2
+      ;;
+    --connector-features-enabled)
+      connectors_input="${2:-}"
+      shift 2
+      ;;
+    -h|--help)
+      show_help
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1" >&2
+      show_help >&2
+      exit 1
+      ;;
+  esac
+done
+
 ensure_deploy_env_file
 
-profile_input="$(prompt_with_default 'Deployment profile (light, balanced, high)' 'balanced')"
+if [[ "${non_interactive}" != "true" ]]; then
+  profile_input="$(prompt_with_default 'Deployment profile (light, balanced, high)' "${profile_input}")"
+fi
+profile_input="$(normalize_profile_key "${profile_input}")"
 configure_profile_defaults "${profile_input}"
 
-ollama_mode="$(prompt_with_default 'Ollama mode (local, external)' 'local')"
-if [[ "${ollama_mode,,}" == "external" ]]; then
+if [[ "${non_interactive}" != "true" ]]; then
+  ollama_mode="$(prompt_with_default 'Ollama mode (local, external)' "${ollama_mode}")"
+fi
+ollama_mode="$(normalize_ollama_mode "${ollama_mode}")"
+if [[ "${ollama_mode}" == "external" ]]; then
   INSTALL_LOCAL_OLLAMA="false"
-  OLLAMA_BASE_URL="$(prompt_with_default 'External Ollama API URL' 'http://127.0.0.1:11434')"
+  if [[ "${non_interactive}" != "true" ]]; then
+    external_ollama_base_url="$(prompt_with_default 'External Ollama API URL' "${external_ollama_base_url:-http://127.0.0.1:11434}")"
+  fi
+  if [[ -z "${external_ollama_base_url}" ]]; then
+    echo "External Ollama mode requires --ollama-base-url." >&2
+    exit 1
+  fi
+  OLLAMA_BASE_URL="${external_ollama_base_url}"
 else
   INSTALL_LOCAL_OLLAMA="true"
   OLLAMA_BASE_URL="http://host.docker.internal:11434"
 fi
 
-security_profile="$(prompt_with_default 'Security profile (standard, safe)' 'standard')"
-if [[ "${security_profile,,}" == "safe" ]]; then
+if [[ "${non_interactive}" != "true" ]]; then
+  security_profile="$(prompt_with_default 'Security profile (standard, safe)' "${security_profile}")"
+fi
+security_profile="$(normalize_security_profile "${security_profile}")"
+if [[ "${security_profile}" == "safe" ]]; then
   SAFE_MODE="true"
 else
   SAFE_MODE="false"
 fi
 
-ADMIN_PASSWORD="$(ensure_password)"
+if [[ "${non_interactive}" == "true" ]]; then
+  ADMIN_PASSWORD="${admin_password_override:-${ADMIN_PASSWORD:-}}"
+  if [[ -z "${ADMIN_PASSWORD}" ]]; then
+    echo "Non-interactive mode requires --admin-password or ADMIN_PASSWORD in the environment." >&2
+    exit 1
+  fi
+else
+  ADMIN_PASSWORD="$(ensure_password)"
+fi
 ADMIN_SESSION_SECRET="$(generate_hex_secret)"
 
-DATA_ROOT_HOST="$(prompt_with_default 'Host data root' '/opt/local-ai-os/data')"
+if [[ "${non_interactive}" != "true" ]]; then
+  DATA_ROOT_HOST="$(prompt_with_default 'Host data root' "${data_root_override}")"
+else
+  DATA_ROOT_HOST="${data_root_override}"
+fi
 QDRANT_STORAGE_HOST="${DATA_ROOT_HOST}/qdrant"
 
-FRONTEND_PORT="$(prompt_with_default 'Frontend port' '3000')"
-BACKEND_PORT="$(prompt_with_default 'Backend port' '8000')"
-QDRANT_PORT="$(prompt_with_default 'Qdrant port' '6333')"
-HOSTNAME_OR_DOMAIN="$(prompt_with_default 'Hostname or domain (optional)' '')"
+if [[ "${non_interactive}" != "true" ]]; then
+  FRONTEND_PORT="$(prompt_with_default 'Frontend port' "${frontend_port_override}")"
+  BACKEND_PORT="$(prompt_with_default 'Backend port' "${backend_port_override}")"
+  QDRANT_PORT="$(prompt_with_default 'Qdrant port' "${qdrant_port_override}")"
+  HOSTNAME_OR_DOMAIN="$(prompt_with_default 'Hostname or domain (optional)' "${hostname_or_domain_override}")"
+else
+  FRONTEND_PORT="${frontend_port_override}"
+  BACKEND_PORT="${backend_port_override}"
+  QDRANT_PORT="${qdrant_port_override}"
+  HOSTNAME_OR_DOMAIN="${hostname_or_domain_override}"
+fi
 
 if [[ -n "${HOSTNAME_OR_DOMAIN}" ]]; then
   NEXT_PUBLIC_API_BASE_URL="http://${HOSTNAME_OR_DOMAIN}:${BACKEND_PORT}"
@@ -124,11 +311,15 @@ else
   BACKEND_CORS_ORIGINS="http://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT}"
 fi
 
-ocr_input="$(prompt_with_default 'Enable OCR stack? (yes, no)' 'yes')"
+if [[ "${non_interactive}" != "true" ]]; then
+  ocr_input="$(prompt_with_default 'Enable OCR stack? (yes, no)' "${ocr_input}")"
+fi
 OCR_ENABLED="$(normalize_yes_no "${ocr_input}")"
 OCRMYPDF_ENABLED="${OCR_ENABLED}"
 
-connectors_input="$(prompt_with_default 'Enable connector features later? (yes, no)' 'yes')"
+if [[ "${non_interactive}" != "true" ]]; then
+  connectors_input="$(prompt_with_default 'Enable connector features later? (yes, no)' "${connectors_input}")"
+fi
 CONNECTOR_FEATURES_ENABLED="$(normalize_yes_no "${connectors_input}")"
 
 if [[ -f "${deploy_env_file}" ]]; then

@@ -146,6 +146,17 @@ It is designed to:
 - support private GitHub repos through a token such as `GITHUB_TOKEN`
 - launch `scripts/deploy/ubuntu/installer.sh` after the payload is fetched
 
+The first automation-oriented installer mode now also exists:
+
+- `scripts/deploy/ubuntu/configure.sh --non-interactive ...`
+- `scripts/deploy/ubuntu/installer.sh --non-interactive ...`
+
+This lets us reuse the same installer flow for:
+
+- manual first-run setup
+- server provisioning
+- future CI or image-build automation
+
 ## Setup Wizard Questions
 
 The wizard should be short and deliberate.

@@ -239,6 +239,19 @@ Or step-by-step:
 3. `./scripts/deploy/ubuntu/deploy.sh`
 4. `./scripts/deploy/ubuntu/verify.sh`
 
+The installer now also supports a first non-interactive path for automation:
+
+```bash
+./scripts/deploy/ubuntu/installer.sh \
+  --non-interactive \
+  --profile balanced \
+  --ollama-mode external \
+  --ollama-base-url http://10.0.0.20:11434 \
+  --security-profile safe \
+  --admin-password 'change-me-now' \
+  --data-root /opt/local-ai-os/data
+```
+
 The Ubuntu deployment uses:
 - `infra/docker-compose.deploy.yml`
 - `frontend/Dockerfile`
@@ -257,6 +270,13 @@ If the repo stays private, export a GitHub token first so the bootstrap script c
 ```bash
 export GITHUB_TOKEN=your_token_here
 ./install-local-ai-os.sh
+```
+
+You can also forward installer automation flags through the bootstrap path:
+
+```bash
+export GITHUB_TOKEN=your_token_here
+./install-local-ai-os.sh --installer-args "--non-interactive --profile balanced --admin-password change-me-now"
 ```
 
 ## Retrieval Evals
