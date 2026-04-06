@@ -247,6 +247,14 @@ That installer-oriented phase split now exists at script level:
 3. `./scripts/deploy/ubuntu/deploy.sh`
 4. `./scripts/deploy/ubuntu/verify.sh`
 
+The first GitHub-delivered bootstrap path now also exists:
+
+1. download `scripts/deploy/bootstrap-from-web.sh` from the repo
+2. run it on the blank Ubuntu server
+3. let it fetch the repo payload and hand off to `scripts/deploy/ubuntu/installer.sh`
+
+If the repo remains private, the bootstrap flow currently expects a GitHub token in an env var such as `GITHUB_TOKEN`.
+
 ## Dependency Notes
 
 ### Ollama

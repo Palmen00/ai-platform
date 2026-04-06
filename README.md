@@ -79,6 +79,7 @@ Optional OCR support for scanned PDFs and image files:
 - `./scripts/eval/gliner-compare.ps1`: Compare the current entity pipeline with a local GLiNER prototype
 - `./scripts/deploy/ubuntu/install.sh`: Run the installer-oriented Ubuntu flow end-to-end
 - `./scripts/deploy/ubuntu/installer.sh`: Top-level wrapper for `bootstrap`, `configure`, `deploy`, and `verify`
+- `./scripts/deploy/bootstrap-from-web.sh`: Download the repo from GitHub and launch the Ubuntu installer from a server bootstrap command
 - `./scripts/deploy/ubuntu/bootstrap.sh`: Install blank-server Ubuntu prerequisites such as Docker and Tesseract
 - `./scripts/deploy/ubuntu/configure.sh`: Run the first installer-style setup wizard and generate `.env.ubuntu`
 - `./scripts/deploy/ubuntu/deploy.sh`: Build OCR helper image, ensure optional local Ollama, and start the Ubuntu deployment stack
@@ -242,6 +243,21 @@ The Ubuntu deployment uses:
 - `infra/docker-compose.deploy.yml`
 - `frontend/Dockerfile`
 - persistent host storage under `data/`
+
+For GitHub-hosted bootstrap installs on a fresh Ubuntu host, download and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Palmen00/ai-platform/main/scripts/deploy/bootstrap-from-web.sh -o install-local-ai-os.sh
+chmod +x install-local-ai-os.sh
+./install-local-ai-os.sh
+```
+
+If the repo stays private, export a GitHub token first so the bootstrap script can clone it:
+
+```bash
+export GITHUB_TOKEN=your_token_here
+./install-local-ai-os.sh
+```
 
 ## Retrieval Evals
 

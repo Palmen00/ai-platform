@@ -135,6 +135,17 @@ Recommended shape:
    - status commands
    - log commands
 
+The first implementation of that install-link path now lives in:
+
+- `scripts/deploy/bootstrap-from-web.sh`
+
+It is designed to:
+
+- download the repo from GitHub into a server install root
+- support public GitHub repos directly
+- support private GitHub repos through a token such as `GITHUB_TOKEN`
+- launch `scripts/deploy/ubuntu/installer.sh` after the payload is fetched
+
 ## Setup Wizard Questions
 
 The wizard should be short and deliberate.

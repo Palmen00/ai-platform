@@ -448,6 +448,13 @@ And print these commands:
 - define env file generation strategy
 - define secret generation strategy
 
+Status:
+
+- a first GitHub bootstrap entrypoint now exists at `scripts/deploy/bootstrap-from-web.sh`
+- it can fetch from a public GitHub repo directly
+- it can also clone a private GitHub repo when a token such as `GITHUB_TOKEN` is provided
+- next improvement is to add a more guided non-interactive/server-automation mode on top
+
 ### Checklist B. Ubuntu Script Refactor
 
 - split current Ubuntu deploy logic into reusable phases:
