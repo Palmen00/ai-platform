@@ -1,0 +1,46 @@
+{
+  "name": "ocr-engine-extended-cases",
+  "description": "Broader OCR checks for alternative OCR paths against mixed real-world PDFs including scanned pages, receipts, reminders, and invoices.",
+  "cases": [
+    {
+      "id": "insurance-certificate-page-1",
+      "document": "Dokument_2023-10-31_180442.pdf",
+      "languages": ["en"],
+      "pages": [0],
+      "expected_terms": ["certificate of insurance", "professional rider", "hospitalization"],
+      "min_term_hits": 2
+    },
+    {
+      "id": "betyg-page-1",
+      "document": "Betyg.pdf",
+      "languages": ["sv", "en"],
+      "pages": [0],
+      "expected_terms": ["examensbevis", "hÃ¶gskolefÃ¶rberedande examen", "oskar"],
+      "min_term_hits": 2
+    },
+    {
+      "id": "jula-receipt-page-1",
+      "document": "Kvitto Jula.pdf",
+      "languages": ["sv", "en"],
+      "pages": [0],
+      "expected_terms": ["kvitto", "ordernummer", "jula"],
+      "min_term_hits": 2
+    },
+    {
+      "id": "argon-reminder-page-1",
+      "document": "Rykker 2 106934 (1).pdf",
+      "languages": ["en"],
+      "pages": [0],
+      "expected_terms": ["rykker", "faktura", "argon 18"],
+      "min_term_hits": 2
+    },
+    {
+      "id": "xiamen-invoice-page-1",
+      "document": "25SECY-0916PV.pdf",
+      "languages": ["en"],
+      "pages": [0],
+      "expected_terms": ["invoice no", "xiamen", "oskar palm"],
+      "min_term_hits": 2
+    }
+  ]
+}

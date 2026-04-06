@@ -1,0 +1,43 @@
+{
+  "name": "document-profile-cases",
+  "description": "Local Ollama profile checks for structured metadata extraction over representative documents.",
+  "cases": [
+    {
+      "id": "architecture-profile",
+      "document": "ARCHITECTURE.pdf",
+      "expected_type_terms": ["architecture"],
+      "expected_summary_terms": ["local ai", "architecture"],
+      "expected_entity_terms": ["ollama", "linux vm"],
+      "expected_search_clue_terms": ["local ai os", "ai architecture"],
+      "allowed_confidence": ["low", "medium", "high"]
+    },
+    {
+      "id": "contract-profile",
+      "document": "Northstar_Aerotech_Master_Service_Agreement_2026-01-15.txt",
+      "expected_type_terms": ["master service agreement", "agreement"],
+      "expected_summary_terms": ["northstar", "fjordbyte"],
+      "expected_entity_terms": ["northstar aerotech ltd", "fjordbyte analytics ab"],
+      "expected_search_clue_terms": ["project nebula arc"],
+      "expected_date_values": ["2026-01-15"],
+      "allowed_confidence": ["medium", "high"]
+    },
+    {
+      "id": "invoice-profile",
+      "document": "BlueHarbor_Medical_Invoice_2026-02-14.txt",
+      "expected_type_terms": ["invoice"],
+      "expected_summary_terms": ["blueharbor", "willow crest"],
+      "expected_entity_terms": ["blueharbor medical supplies ltd", "willow crest clinic ab"],
+      "expected_search_clue_terms": ["blueharbor medical supplies ltd"],
+      "expected_date_values": ["2026-02-14", "2026-03-15"],
+      "allowed_confidence": ["medium", "high"]
+    },
+    {
+      "id": "password-manual-profile",
+      "document": "Hash Crack_ Password Cracking Manual v2_0 -- By Joshua Picolet -- 2, Herndon, Virginia, September 1, 2017 -- CreateSpace Independent Publishing -- 9781975924584 -- 7931efa5f9071465df77e4919972de9f -- Anna’s Archive.pdf",
+      "expected_type_terms": ["password cracking manual", "manual"],
+      "expected_summary_terms": ["password cracking"],
+      "expected_search_clue_terms": ["password cracking", "john the ripper"],
+      "allowed_confidence": ["medium", "high"]
+    }
+  ]
+}

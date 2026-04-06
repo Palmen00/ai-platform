@@ -1,0 +1,20 @@
+BlueHarbor Medical Supplies Ltd
+Invoice
+Invoice number: BH-2026-0214
+Invoice date: 2026-02-14
+Due date: 2026-03-15
+Bill to: Willow Crest Clinic AB
+
+Items
+Portable ultrasound gel packs
+Sterile tubing set
+Emergency wound dressing kit
+
+Summary
+Subtotal: EUR 1,240
+VAT: EUR 310
+Amount due: EUR 1,550
+
+Contact
+BlueHarbor Medical Supplies Ltd
+accounts@blueharbormedical.test

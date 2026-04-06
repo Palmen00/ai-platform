@@ -1,0 +1,22 @@
+{
+  "name": "ocr-engine-cases",
+  "description": "Prototype OCR checks for alternative OCR engines against representative scanned documents.",
+  "cases": [
+    {
+      "id": "insurance-certificate-page-1",
+      "document": "Dokument_2023-10-31_180442.pdf",
+      "languages": ["en"],
+      "pages": [0],
+      "expected_terms": ["certificate of insurance", "professional rider", "hospitalization"],
+      "min_term_hits": 2
+    },
+    {
+      "id": "betyg-page-1",
+      "document": "Betyg.pdf",
+      "languages": ["sv", "en"],
+      "pages": [0],
+      "expected_terms": ["examensbevis", "högskoleförberedande examen", "oskar"],
+      "min_term_hits": 2
+    }
+  ]
+}

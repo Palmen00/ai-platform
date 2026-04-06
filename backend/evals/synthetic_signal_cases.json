@@ -1,0 +1,159 @@
+{
+  "name": "synthetic-signal-cases",
+  "description": "Synthetic business-style checks for invoices, contracts, policies, quotes, and incident reports across fake companies and projects.",
+  "cases": [
+    {
+      "id": "synthetic-blueharbor-invoice-inventory",
+      "required_documents": ["BlueHarbor_Medical_Invoice_2026-02-14.txt"],
+      "question": "Do I have any invoices from BlueHarbor in my documents?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["blueharbor", "invoice", "medical"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-blueharbor-invoice-date",
+      "required_documents": ["BlueHarbor_Medical_Invoice_2026-02-14.txt"],
+      "question": "What invoices from 2026 do I have from BlueHarbor?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["2026", "blueharbor", "invoice"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-northstar-renewal",
+      "required_documents": ["Northstar_Aerotech_Master_Service_Agreement_2026-01-15.txt"],
+      "question": "What does the Northstar agreement say about renewal?",
+      "expected_documents": ["Northstar_Aerotech_Master_Service_Agreement_2026-01-15.txt"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["renew", "60 days", "12 months"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-nebula-arc",
+      "required_documents": ["Northstar_Aerotech_Master_Service_Agreement_2026-01-15.txt"],
+      "question": "Which document mentions Project Nebula Arc?",
+      "expected_documents": ["Northstar_Aerotech_Master_Service_Agreement_2026-01-15.txt"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["nebula arc", "northstar"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-fjordbyte-company-mention",
+      "required_documents": ["Northstar_Aerotech_Master_Service_Agreement_2026-01-15.txt"],
+      "question": "Which document mentions Fjordbyte Analytics?",
+      "expected_documents": ["Northstar_Aerotech_Master_Service_Agreement_2026-01-15.txt"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["fjordbyte", "northstar"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-solstice-hotel-policy",
+      "required_documents": ["Solstice_Logistics_Travel_Policy_2025-08-01.txt"],
+      "question": "What does the Solstice travel policy say about hotel reimbursement?",
+      "expected_documents": ["Solstice_Logistics_Travel_Policy_2025-08-01.txt"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["hotel", "180", "night"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-aurora-quote-type",
+      "required_documents": ["Aurora_Cycling_Quote_2026-04-22.txt"],
+      "question": "What kind of document is Aurora_Cycling_Quote_2026-04-22.txt?",
+      "expected_documents": ["Aurora_Cycling_Quote_2026-04-22.txt"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["quote"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-frost-ember",
+      "required_documents": ["Meridian_Food_Service_Incident_Report_2025-11-03.txt"],
+      "question": "Do any documents mention Frost Ember?",
+      "expected_documents": ["Meridian_Food_Service_Incident_Report_2025-11-03.txt"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["frost ember", "incident"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-clinic-mention",
+      "required_documents": ["BlueHarbor_Medical_Invoice_2026-02-14.txt"],
+      "question": "Which document mentions Willow Crest Clinic?",
+      "expected_documents": ["BlueHarbor_Medical_Invoice_2026-02-14.txt"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["willow crest", "blueharbor"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-quote-company-entity",
+      "required_documents": ["Aurora_Cycling_Quote_2026-04-22.txt"],
+      "question": "Which company appears in a quote?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["aurora", "northwind", "quote"],
+      "forbidden_reply_terms": ["cannot access files", "could not find any quotes"]
+    },
+    {
+      "id": "synthetic-sharepoint-code-document",
+      "required_documents": ["Fjordbyte_SharePoint_Sync_Service.ts"],
+      "question": "Do I have a code file that explains SharePoint sync?",
+      "expected_documents": ["Fjordbyte_SharePoint_Sync_Service.ts"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["sharepoint", "sync", "code"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-sharepoint-token-refresh",
+      "required_documents": [
+        "Fjordbyte_SharePoint_Sync_Service.ts",
+        "BlueHarbor_SharePoint_Knowledge_Runbook.docx"
+      ],
+      "question": "Which document mentions OAuth token refresh for SharePoint?",
+      "expected_documents": [
+        "Fjordbyte_SharePoint_Sync_Service.ts",
+        "BlueHarbor_SharePoint_Knowledge_Runbook.docx"
+      ],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["sharepoint", "token", "refresh"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-sharepoint-runbook-docx",
+      "required_documents": ["BlueHarbor_SharePoint_Knowledge_Runbook.docx"],
+      "question": "Which Word document explains SharePoint knowledge sync and OAuth token refresh?",
+      "expected_documents": ["BlueHarbor_SharePoint_Knowledge_Runbook.docx"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["sharepoint", "oauth", "runbook"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-license-register-xlsx",
+      "required_documents": ["Northwind_M365_License_Register.xlsx"],
+      "question": "Which spreadsheet mentions Microsoft 365 Business Premium seats and SharePoint connector access?",
+      "expected_documents": ["Northwind_M365_License_Register.xlsx"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["microsoft 365", "sharepoint", "seats"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "synthetic-rollout-briefing-pptx",
+      "required_documents": ["Solstice_SharePoint_Rollout_Briefing.pptx"],
+      "question": "Which presentation mentions a phased SharePoint rollout for contracts, policies, and invoices?",
+      "expected_documents": ["Solstice_SharePoint_Rollout_Briefing.pptx"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["sharepoint", "phase", "contracts"],
+      "forbidden_reply_terms": ["cannot access files"]
+    }
+  ]
+}

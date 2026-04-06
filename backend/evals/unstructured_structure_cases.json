@@ -1,0 +1,42 @@
+[
+  {
+    "id": "architecture-structure",
+    "document": "ARCHITECTURE.pdf",
+    "category": "technical-pdf",
+    "expected_title_terms": ["local ai", "architecture"],
+    "expected_section_terms": ["system layers", "flow", "backend responsibilities"],
+    "min_sections": 3
+  },
+  {
+    "id": "operating-environment-structure",
+    "document": "local_ai_operating_environment.pdf",
+    "category": "vision-pdf",
+    "expected_title_terms": ["local ai", "operating environment"],
+    "expected_section_terms": ["vision", "problem", "solution", "architecture"],
+    "min_sections": 5
+  },
+  {
+    "id": "contract-structure",
+    "document": "Northstar_Aerotech_Master_Service_Agreement_2026-01-15.txt",
+    "category": "contract-text",
+    "expected_title_terms": ["northstar", "aerotech"],
+    "expected_section_terms": ["master service agreement", "renewal", "payment terms", "confidentiality"],
+    "min_sections": 5
+  },
+  {
+    "id": "policy-structure",
+    "document": "Solstice_Logistics_Travel_Policy_2025-08-01.txt",
+    "category": "policy-text",
+    "expected_title_terms": ["solstice", "logistics"],
+    "expected_section_terms": ["travel reimbursement policy", "hotel reimbursement", "mileage", "submission"],
+    "min_sections": 5
+  },
+  {
+    "id": "invoice-structure",
+    "document": "BlueHarbor_Medical_Invoice_2026-02-14.txt",
+    "category": "invoice-text",
+    "expected_title_terms": ["blueharbor", "medical"],
+    "expected_section_terms": ["invoice", "summary"],
+    "min_sections": 3
+  }
+]

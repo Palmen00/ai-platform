@@ -1,0 +1,13 @@
+Meridian Food Service AB
+Incident Report
+Document date: 2025-11-03
+
+Incident summary
+On 2025-11-02, the overnight refrigeration monitor triggered alert code Frost Ember at the Lund distribution kitchen.
+
+Findings
+The compressor room temperature rose above the approved threshold for 47 minutes.
+No injuries were reported, but two product batches were quarantined pending inspection.
+
+Recommendation
+Replace the temperature relay within seven days and review the overnight escalation checklist.

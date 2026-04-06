@@ -1,0 +1,85 @@
+{
+  "name": "retrieval-hard-cases",
+  "description": "Harder retrieval checks covering OCR-backed documents, document disambiguation, and broader grounding behavior.",
+  "cases": [
+    {
+      "id": "architecture-disambiguation-linux",
+      "question": "What does the architecture document say about Linux?",
+      "expected_documents": ["ARCHITECTURE.pdf"],
+      "allowed_support_documents": ["local_ai_operating_environment.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["linux", "backend"]
+    },
+    {
+      "id": "code-architecture-disambiguation-frontend",
+      "question": "What does the code architecture document say about the frontend structure?",
+      "expected_documents": ["Code_Architecture.pdf"],
+      "allowed_support_documents": ["ARCHITECTURE.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["frontend"]
+    },
+    {
+      "id": "ocr-insurance-medicine",
+      "required_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "question": "What does the scanned insurance document say about doctor and medicine expenses?",
+      "expected_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["doctor", "medicine"]
+    },
+    {
+      "id": "ocr-insurance-document-type",
+      "required_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "question": "What kind of scanned document is the insurance PDF?",
+      "expected_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["insurance", "rider"]
+    },
+    {
+      "id": "vision-linux-broad-grounding",
+      "question": "Does my files contain linux?",
+      "expected_documents": ["local_ai_operating_environment.pdf", "ARCHITECTURE.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["linux"]
+    },
+    {
+      "id": "roadmap-week-one-grounding",
+      "question": "Which document talks about week 1?",
+      "expected_documents": ["Roadmap.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["week 1", "roadmap"]
+    },
+    {
+      "id": "scoped-code-architecture-hard",
+      "question": "What does it say about the frontend structure?",
+      "scope_documents": ["Code_Architecture.pdf"],
+      "expected_documents": ["Code_Architecture.pdf"],
+      "max_returned_sources": 2,
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["frontend"]
+    },
+    {
+      "id": "ocr-insurance-death-coverage",
+      "required_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "question": "Does the scanned insurance document mention death insurance?",
+      "expected_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["death", "insurance"]
+    },
+    {
+      "id": "general-no-doc-overreach",
+      "question": "How many days are in a year?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["365"],
+      "forbidden_reply_terms": ["uploaded documents", "cannot access files"]
+    }
+  ]
+}

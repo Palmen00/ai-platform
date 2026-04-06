@@ -1,0 +1,144 @@
+{
+  "name": "document-coverage-cases",
+  "description": "Broader reply-level checks across invoice, vendor/entity metadata, roadmap, current features, OCR insurance, and operating-environment documents.",
+  "cases": [
+    {
+      "id": "invoice-document-type",
+      "question": "What kind of document is 25SECY-0916PV.pdf?",
+      "expected_documents": ["25SECY-0916PV.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["invoice"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "invoice-inventory",
+      "question": "What invoices do I have?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["invoice"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "invoice-inventory-2025",
+      "question": "What invoices from 2025 do I have?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["invoice", "2025", "25secy-0916pv"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "invoice-inventory-argon18-sv",
+      "required_documents": ["Salgsfaktura 512376.pdf"],
+      "question": "Har jag några fakturor från argon 18 i mina dokument?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["argon", "salgsfaktura", "invoice"],
+      "forbidden_reply_terms": ["cannot access files", "personligtbrev"]
+    },
+    {
+      "id": "invoice-inventory-telenor",
+      "required_documents": ["Faktura 526190902423.pdf"],
+      "question": "Do I have any invoices from Telenor in my documents?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["telenor", "invoice", "faktura"],
+      "forbidden_reply_terms": ["cannot access files", "personligtbrev"]
+    },
+    {
+      "id": "invoice-inventory-umara",
+      "required_documents": ["Faktura_162858.pdf"],
+      "question": "Do I have any invoices from Umara in my documents?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["umara", "invoice", "faktura_162858"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "invoice-inventory-xiamen",
+      "required_documents": ["25SECY-0916PV.pdf"],
+      "question": "Do I have any invoices from Xiamen Yuan An in my documents?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["xiamen", "invoice", "25secy-0916pv"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "document-inventory-argon18",
+      "required_documents": ["Salgsordre 311959.pdf"],
+      "question": "Do I have any documents from Argon 18 in my documents?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["argon", "documents", "salgsordre"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "invoice-mentions-peak-velo",
+      "question": "Does the invoice mention Peak Vélo?",
+      "allowed_support_documents": ["25SECY-0916PV.pdf", "25SECY-0916PV (1).pdf", "25SECY-0916PV (2).pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["peak", "invoice"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "current-features-dashboard",
+      "question": "What does the current features document say about the dashboard?",
+      "expected_documents": ["Current_Features.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["dashboard", "backend", "model status"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "roadmap-auth",
+      "question": "What does the roadmap say about auth?",
+      "expected_documents": ["Roadmap.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["auth"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "local-ai-setup-difficulty",
+      "question": "What does the local AI operating environment document say about setup difficulty?",
+      "expected_documents": ["local_ai_operating_environment.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["time", "technical knowledge"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "ocr-hospitalization-expenses",
+      "required_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "question": "What does the scanned insurance document say about hospitalization expenses?",
+      "expected_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["hospitalization", "100", "ocr"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "password-cracking-document",
+      "required_documents": ["Hash Crack_ Password Cracking Manual v2_0 -- By Joshua Picolet -- 2, Herndon, Virginia, September 1, 2017 -- CreateSpace Independent Publishing -- 9781975924584 -- 7931efa5f9071465df77e4919972de9f -- Anna’s Archive.pdf"],
+      "question": "Do I have a document that explains password cracking?",
+      "expected_documents": ["Hash Crack_ Password Cracking Manual v2_0 -- By Joshua Picolet -- 2, Herndon, Virginia, September 1, 2017 -- CreateSpace Independent Publishing -- 9781975924584 -- 7931efa5f9071465df77e4919972de9f -- Anna’s Archive.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["password", "cracking", "document"],
+      "forbidden_reply_terms": ["cannot access files"]
+    },
+    {
+      "id": "password-cracking-similar-theme",
+      "required_documents": [
+        "Hash Crack_ Password Cracking Manual v2_0 -- By Joshua Picolet -- 2, Herndon, Virginia, September 1, 2017 -- CreateSpace Independent Publishing -- 9781975924584 -- 7931efa5f9071465df77e4919972de9f -- Anna’s Archive.pdf",
+        "RTFM_ Red Team Field Manual v2 -- Ben Clark & Nick Downer -- v 2_0, July 11, 2022 -- Independently Published -- 9781075091834 -- a0f7e826d821c59d7b2e41854dd8cb21 -- Anna’s Archive.pdf"
+      ],
+      "question": "What documents are similar to the password cracking manual?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["password", "cracking", "rtfm"],
+      "forbidden_reply_terms": ["cannot access files", "salgsordre", "invoice_532600"]
+    }
+  ]
+}

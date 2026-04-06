@@ -1,0 +1,62 @@
+{
+  "name": "retrieval-baseline",
+  "description": "Initial retrieval and answer-quality smoke tests against the current local document set.",
+  "cases": [
+    {
+      "id": "architecture-linux",
+      "question": "What does the architecture document say about Linux?",
+      "expected_documents": ["ARCHITECTURE.pdf"],
+      "allowed_support_documents": ["local_ai_operating_environment.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["linux"]
+    },
+    {
+      "id": "vision-linux",
+      "question": "Does my files contain linux?",
+      "expected_documents": ["local_ai_operating_environment.pdf", "ARCHITECTURE.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["linux"]
+    },
+    {
+      "id": "code-architecture-frontend",
+      "question": "What does the code architecture document say about the frontend structure?",
+      "expected_documents": ["Code_Architecture.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["frontend"]
+    },
+    {
+      "id": "roadmap-week-one",
+      "question": "Which document talks about week 1?",
+      "expected_documents": ["Roadmap.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium"
+    },
+    {
+      "id": "scoped-code-architecture",
+      "question": "What does it say about the frontend structure?",
+      "scope_documents": ["Code_Architecture.pdf"],
+      "expected_documents": ["Code_Architecture.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["frontend"]
+    },
+    {
+      "id": "inventory-documents",
+      "question": "What files have I uploaded?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "min_confidence": "low"
+    },
+    {
+      "id": "general-question-no-docs",
+      "question": "How many days are in a year?",
+      "expected_mode": "none",
+      "max_returned_sources": 0,
+      "expected_reply_terms": ["365"],
+      "forbidden_reply_terms": ["uploaded documents", "cannot access files"]
+    }
+  ]
+}

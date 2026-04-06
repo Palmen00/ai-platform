@@ -1,0 +1,45 @@
+{
+  "name": "reply-quality-cases",
+  "description": "Reply-level checks for more natural document and OCR answers.",
+  "cases": [
+    {
+      "id": "reply-linux-natural",
+      "question": "Does my files contain linux?",
+      "expected_documents": ["local_ai_operating_environment.pdf", "ARCHITECTURE.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["linux vm", "linux server"],
+      "forbidden_reply_terms": ["uploaded documents mention linux", "cannot access files"]
+    },
+    {
+      "id": "reply-ocr-medicine-natural",
+      "required_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "question": "What does the scanned insurance document say about doctor and medicine expenses?",
+      "expected_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["reimbursement", "doctor", "medicine", "100000"],
+      "forbidden_reply_terms": ["cannot access files", "uploaded documents mention"]
+    },
+    {
+      "id": "reply-ocr-death-natural",
+      "required_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "question": "Does the scanned insurance document mention death insurance?",
+      "expected_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["death insurance", "payment"],
+      "forbidden_reply_terms": ["cannot access files", "uploaded documents mention"]
+    },
+    {
+      "id": "reply-ocr-document-type-natural",
+      "required_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "question": "What kind of scanned document is the insurance PDF?",
+      "expected_documents": ["Dokument_2023-10-31_180442.pdf"],
+      "min_returned_sources": 1,
+      "min_confidence": "medium",
+      "expected_reply_terms": ["insurance certificate", "professional rider"],
+      "forbidden_reply_terms": ["cannot access files", "appendix 2"]
+    }
+  ]
+}
