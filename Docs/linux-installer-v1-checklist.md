@@ -72,6 +72,8 @@ Outputs:
 - validated `.env.ubuntu` or installer-generated equivalent
 - created storage directories
 - clear runtime profile chosen
+- reusable answer-file-driven automation path
+- deploy-ready preflight summary
 
 ### Phase 3. Deploy
 
@@ -108,6 +110,9 @@ Outputs:
 ## Wizard Questions And Env Mapping
 
 The wizard should stay short.
+
+The same values should also be accepted through a simple answer file in `KEY=VALUE` format.
+That lets us reuse a validated install profile without rebuilding a long CLI command every time.
 
 ### 1. Deployment Profile
 
@@ -156,31 +161,48 @@ Prompt:
 
 Maps to:
 
-- `AUTH_ENABLED=true`
 - `SAFE_MODE=true|false`
 
 Recommended v1 rule:
 
-- admin auth should be enabled by default in both profiles
 - `Safe Mode` only changes stricter behavior, not whether auth exists
 
-### 4. Admin Setup
+### 4. Access Mode
 
 Prompt:
 
+- `Require sign-in from first page`
+- `Open local access`
+
+Maps to:
+
+- `AUTH_ENABLED=true|false`
+
+Recommended v1 rule:
+
+- require sign-in by default
+- open local access should be an explicit operator choice
+
+### 5. Admin Setup
+
+Prompt:
+
+- bootstrap admin username
 - admin password
 
 Maps to:
 
-- `ADMIN_PASSWORD`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD_HASH`
 - generated `ADMIN_SESSION_SECRET`
+- generated `APP_SECRETS_KEY`
 - optional `ADMIN_SESSION_TTL_HOURS`
 
 Recommended default:
 
 - `ADMIN_SESSION_TTL_HOURS=12`
 
-### 5. Storage Location
+### 6. Storage Location
 
 Prompt:
 
@@ -195,7 +217,7 @@ Recommended default:
 
 - `/opt/local-ai-os/data`
 
-### 6. Network Setup
+### 7. Network Setup
 
 Prompt:
 
@@ -212,7 +234,7 @@ Maps to:
 - `NEXT_PUBLIC_API_BASE_URL`
 - `BACKEND_CORS_ORIGINS`
 
-### 7. OCR Enablement
+### 8. OCR Enablement
 
 Prompt:
 
@@ -228,7 +250,7 @@ Recommended default:
 
 - enabled
 
-### 8. Connector Feature Readiness
+### 9. Connector Feature Readiness
 
 Prompt:
 
@@ -243,6 +265,52 @@ Maps to:
 V1 note:
 
 - this should not ask for Google or SharePoint secrets during base install
+
+## Answer File Mode
+
+Installer V1 should support a reusable answer file for automation and repeatable server setup.
+
+Recommended shape:
+
+- simple `KEY=VALUE` lines
+- blank lines and `# comments` allowed
+- suitable for both:
+  - `configure.sh --answer-file ...`
+  - `installer.sh --non-interactive --answer-file ...`
+
+Recommended example file:
+
+- `scripts/deploy/ubuntu/answer-file.example.env`
+- `scripts/deploy/ubuntu/answer-file.standard.env`
+
+Recommended keys:
+
+- `PROFILE`
+- `OLLAMA_MODE`
+- `OLLAMA_BASE_URL`
+- `AUTH_MODE`
+- `SECURITY_PROFILE`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD_FILE`
+- `DATA_ROOT`
+- `FRONTEND_PORT`
+- `BACKEND_PORT`
+- `QDRANT_PORT`
+- `HOSTNAME`
+- `OCR_ENABLED`
+- `CONNECTOR_FEATURES_ENABLED`
+
+Security note:
+
+- prefer `ADMIN_PASSWORD_FILE` over inline `ADMIN_PASSWORD`
+- answer files should never be committed with real secrets
+
+Recommended V1 baseline:
+
+- keep one smoke-tested standard answer file in the repo
+- treat it as the official first single-server profile
+- validate it regularly with `configure.sh --non-interactive --validate-only --answer-file ...`
+- keep sign-in required, but leave safe mode off in the standard baseline
 
 ## Recommended Profile Defaults
 
@@ -321,8 +389,10 @@ NEXT_PUBLIC_API_BASE_URL=...
 BACKEND_CORS_ORIGINS=...
 
 AUTH_ENABLED=true
-ADMIN_PASSWORD=...
+ADMIN_USERNAME=Admin
+ADMIN_PASSWORD_HASH=...
 ADMIN_SESSION_SECRET=...
+APP_SECRETS_KEY=...
 ADMIN_SESSION_TTL_HOURS=12
 SAFE_MODE=...
 
@@ -418,6 +488,21 @@ The installer should have explicit failure categories for:
 
 ## Support Output Checklist
 
+Before deploy starts, print a preflight summary that includes:
+
+- profile
+- ollama mode and url
+- access mode
+- bootstrap admin username
+- safe mode state
+- OCR state
+- connector feature state
+- storage root
+- frontend/backend/qdrant ports
+- public API URL
+
+Interactive installs should then ask for confirmation before deploy continues.
+
 At the end of a successful install, print:
 
 - frontend URL
@@ -428,6 +513,18 @@ At the end of a successful install, print:
 - whether OCR is enabled
 - whether safe mode is enabled
 - whether Ollama is local or external
+
+And write an install report that records:
+
+- chosen profile
+- auth/access mode
+- bootstrap admin username
+- safe mode state
+- OCR state
+- connector feature state
+- frontend/backend/Qdrant URLs
+- storage root
+- support commands
 
 And print these commands:
 

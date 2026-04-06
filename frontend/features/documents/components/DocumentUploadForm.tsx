@@ -5,17 +5,24 @@ import { siteConfig } from "../../../config/site";
 
 type DocumentUploadFormProps = {
   isUploading: boolean;
+  disabled?: boolean;
+  disabledMessage?: string;
   onUpload: (files: File[]) => Promise<boolean>;
 };
 
 export function DocumentUploadForm({
   isUploading,
+  disabled = false,
+  disabledMessage = "You need document management access to upload files.",
   onUpload,
 }: DocumentUploadFormProps) {
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (disabled) {
+      return;
+    }
     const form = event.currentTarget;
     const wasUploaded = await onUpload(selectedFiles);
 
@@ -47,12 +54,13 @@ export function DocumentUploadForm({
           onChange={(event) =>
             setSelectedFiles(Array.from(event.target.files ?? []))
           }
+          disabled={disabled || isUploading}
           className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700"
         />
 
         <button
           type="submit"
-          disabled={isUploading}
+          disabled={disabled || isUploading}
           className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
         >
           {isUploading
@@ -60,6 +68,12 @@ export function DocumentUploadForm({
             : siteConfig.knowledge.uploadButton}
           </button>
       </div>
+
+      {disabled && (
+        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {disabledMessage}
+        </div>
+      )}
 
       {selectedFiles.length > 0 && (
         <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-sm text-slate-600">

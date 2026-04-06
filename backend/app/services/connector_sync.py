@@ -141,10 +141,13 @@ class ConnectorSyncService:
                         file_path=file_path,
                         original_name=file_path.name,
                         content_type=self.document_service._guess_content_type(file_path),
+                        source_connector_id=connector.id,
                         source_provider=connector.provider,
                         source_uri=source_uri,
                         source_container=connector.container or connector.name,
                         source_last_modified_at=source_last_modified_at,
+                        visibility=connector.document_visibility,
+                        access_usernames=connector.access_usernames,
                     )
                 except ValueError:
                     document_id = None

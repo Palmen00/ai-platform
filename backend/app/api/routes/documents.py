@@ -11,7 +11,13 @@ from app.schemas.document import (
     DocumentSecurityUpdateRequest,
     DocumentUploadResponse,
 )
-from app.services.auth import auth_service, get_admin_token, require_admin_from_either_header
+from app.services.auth import (
+    auth_service,
+    get_actor_log_fields,
+    get_session_token,
+    require_admin_from_either_header,
+    require_authenticated_session,
+)
 from app.services.documents import DocumentService
 from app.services.logging_service import log_event
 from app.services.ollama import OllamaService
@@ -32,9 +38,10 @@ def list_documents(
     type_filter: str = Query(default="all"),
     source_filter: str = Query(default="all"),
     sort_order: str = Query(default="newest"),
-    admin_token: str | None = Depends(get_admin_token),
+    session=Depends(require_authenticated_session),
+    session_token: str | None = Depends(get_session_token),
 ) -> DocumentListResponse:
-    is_admin = auth_service.has_admin_access(admin_token)
+    is_admin = auth_service.has_admin_access(session_token)
     (
         documents,
         total_count,
@@ -42,8 +49,7 @@ def list_documents(
         available_sources,
         available_type_facets,
         available_source_facets,
-    ) = (
-        document_service.list_documents_for_ui(
+    ) = document_service.list_documents_for_ui(
         limit=limit,
         offset=offset,
         query=query,
@@ -52,7 +58,7 @@ def list_documents(
         source_filter=source_filter,
         sort_order=sort_order,
         is_admin=is_admin,
-        )
+        viewer_username=session.username if session else None,
     )
     return DocumentListResponse(
         documents=documents,
@@ -71,13 +77,15 @@ def list_documents(
 def get_document_preview(
     document_id: str,
     chunk: int | None = Query(default=None, ge=0),
-    admin_token: str | None = Depends(get_admin_token),
+    session=Depends(require_authenticated_session),
+    session_token: str | None = Depends(get_session_token),
 ) -> DocumentPreviewResponse:
     try:
         preview = document_service.get_document_preview(
             document_id,
             focus_chunk_index=chunk,
-            is_admin=auth_service.has_admin_access(admin_token),
+            is_admin=auth_service.has_admin_access(session_token),
+            viewer_username=session.username if session else None,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -88,6 +96,7 @@ def get_document_preview(
 @router.post("/upload", response_model=DocumentUploadResponse)
 def upload_document(
     background_tasks: BackgroundTasks,
+    session=Depends(require_admin_from_either_header),
     file: UploadFile = File(...),
 ) -> DocumentUploadResponse:
     if not file.filename:
@@ -103,6 +112,8 @@ def upload_document(
     log_event(
         "document.upload",
         "Document uploaded and queued for processing.",
+        category="audit",
+        **get_actor_log_fields(session),
         document_id=document.id,
         document_name=document.original_name,
         processing_status=document.processing_status,
@@ -116,12 +127,14 @@ def upload_document(
 def process_document(
     document_id: str,
     background_tasks: BackgroundTasks,
-    admin_token: str | None = Depends(get_admin_token),
+    session=Depends(require_admin_from_either_header),
+    session_token: str | None = Depends(get_session_token),
 ) -> DocumentProcessResponse:
     try:
         if document_service.get_document_for_viewer(
             document_id,
-            is_admin=auth_service.has_admin_access(admin_token),
+            is_admin=auth_service.has_admin_access(session_token),
+            viewer_username=session.username if session else None,
         ) is None:
             raise FileNotFoundError(f"Document {document_id} not found")
         document = document_service.queue_document_processing(document_id)
@@ -131,6 +144,8 @@ def process_document(
             "document.process",
             "Document process failed because the document was not found.",
             status="error",
+            category="audit",
+            **get_actor_log_fields(session),
             document_id=document_id,
         )
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -138,6 +153,8 @@ def process_document(
     log_event(
         "document.process",
         "Document queued for processing.",
+        category="audit",
+        **get_actor_log_fields(session),
         document_id=document.id,
         document_name=document.original_name,
         processing_status=document.processing_status,
@@ -150,6 +167,7 @@ def process_document(
 @router.post("/reprocess-all", response_model=DocumentBatchProcessResponse)
 def reprocess_all_documents(
     background_tasks: BackgroundTasks,
+    session=Depends(require_admin_from_either_header),
 ) -> DocumentBatchProcessResponse:
     documents = document_service.queue_all_documents_processing()
     for document in documents:
@@ -158,6 +176,8 @@ def reprocess_all_documents(
     log_event(
         "document.reprocess_all",
         "All documents queued for reprocessing.",
+        category="audit",
+        **get_actor_log_fields(session),
         queued_count=len(documents),
         document_ids=[document.id for document in documents],
     )
@@ -169,11 +189,15 @@ def reprocess_all_documents(
 
 
 @router.post("/retry-indexing", response_model=DocumentBatchProcessResponse)
-def retry_incomplete_documents() -> DocumentBatchProcessResponse:
+def retry_incomplete_documents(
+    session=Depends(require_admin_from_either_header),
+) -> DocumentBatchProcessResponse:
     documents = document_service.retry_incomplete_documents()
     log_event(
         "document.retry_indexing",
         "Retried incomplete document indexing.",
+        category="audit",
+        **get_actor_log_fields(session),
         retried_count=len(documents),
         document_ids=[document.id for document in documents],
     )
@@ -184,7 +208,9 @@ def retry_incomplete_documents() -> DocumentBatchProcessResponse:
 
 
 @router.post("/recover", response_model=DocumentBatchProcessResponse)
-def recover_incomplete_documents() -> DocumentBatchProcessResponse:
+def recover_incomplete_documents(
+    session=Depends(require_admin_from_either_header),
+) -> DocumentBatchProcessResponse:
     ollama_status = ollama_service.get_status()
     qdrant_status = vector_store_service.get_status()
 
@@ -193,6 +219,8 @@ def recover_incomplete_documents() -> DocumentBatchProcessResponse:
             "document.recover",
             "Automatic recovery skipped because runtime dependencies are not healthy.",
             status="warning",
+            category="audit",
+            **get_actor_log_fields(session),
             ollama_status=ollama_status.status,
             qdrant_status=qdrant_status.status,
         )
@@ -205,6 +233,8 @@ def recover_incomplete_documents() -> DocumentBatchProcessResponse:
     log_event(
         "document.recover",
         "Automatic recovery completed for retriable documents.",
+        category="audit",
+        **get_actor_log_fields(session),
         retried_count=len(documents),
         document_ids=[document.id for document in documents],
     )
@@ -217,16 +247,20 @@ def recover_incomplete_documents() -> DocumentBatchProcessResponse:
 @router.delete("/{document_id}")
 def delete_document(
     document_id: str,
-    admin_token: str | None = Depends(get_admin_token),
+    session=Depends(require_admin_from_either_header),
+    session_token: str | None = Depends(get_session_token),
 ) -> dict[str, str]:
     if document_service.get_document_for_viewer(
         document_id,
-        is_admin=auth_service.has_admin_access(admin_token),
+        is_admin=auth_service.has_admin_access(session_token),
+        viewer_username=session.username if session else None,
     ) is None:
         log_event(
             "document.delete",
             "Document delete failed because the document was not found.",
             status="error",
+            category="audit",
+            **get_actor_log_fields(session),
             document_id=document_id,
         )
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -237,27 +271,36 @@ def delete_document(
             "document.delete",
             "Document delete failed because the document was not found.",
             status="error",
+            category="audit",
+            **get_actor_log_fields(session),
             document_id=document_id,
         )
         raise HTTPException(status_code=404, detail="Document not found.")
 
-    log_event("document.delete", "Document deleted.", document_id=document_id)
+    log_event(
+        "document.delete",
+        "Document deleted.",
+        category="audit",
+        **get_actor_log_fields(session),
+        document_id=document_id,
+    )
     return {"status": "deleted", "id": document_id}
 
 
 @router.put(
     "/{document_id}/security",
     response_model=DocumentSecurityResponse,
-    dependencies=[Depends(require_admin_from_either_header)],
 )
 def update_document_security(
     document_id: str,
     payload: DocumentSecurityUpdateRequest,
+    session=Depends(require_admin_from_either_header),
 ) -> DocumentSecurityResponse:
     try:
         document = document_service.update_document_visibility(
             document_id,
             visibility=payload.visibility,
+            access_usernames=payload.access_usernames,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -267,8 +310,11 @@ def update_document_security(
     log_event(
         "document.security",
         "Document visibility updated.",
+        category="audit",
+        **get_actor_log_fields(session),
         document_id=document.id,
         document_name=document.original_name,
         visibility=document.visibility,
+        access_usernames=document.access_usernames,
     )
     return DocumentSecurityResponse(document=document)

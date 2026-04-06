@@ -12,7 +12,7 @@ def _parse_cors_origins(raw_value: str) -> list[str]:
 class Settings:
     def __init__(self) -> None:
         repo_root = Path(__file__).resolve().parents[2]
-        load_dotenv(repo_root / ".env")
+        load_dotenv(repo_root / ".env", override=True)
         self._mutable_keys = (
             "ollama_base_url",
             "ollama_default_model",
@@ -51,6 +51,9 @@ class Settings:
                 "DOCUMENT_EXTRACTED_TEXT_DIR",
                 self.documents_metadata_dir / "extracted",
             )
+        )
+        self.users_path = Path(
+            os.getenv("USERS_PATH", self.app_data_root / "users.json")
         )
         self.connectors_dir = Path(
             os.getenv("CONNECTORS_DIR", self.app_data_root / "connectors")
@@ -160,12 +163,32 @@ class Settings:
             "yes",
             "on",
         }
+        self.admin_username = os.getenv("ADMIN_USERNAME", "Admin").strip() or "Admin"
+        self.admin_password_hash = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
         self.admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
         self.admin_session_secret = os.getenv("ADMIN_SESSION_SECRET", "").strip()
         self.admin_session_ttl_hours = max(
             1,
             int(os.getenv("ADMIN_SESSION_TTL_HOURS", "12")),
         )
+        self.admin_session_cookie_name = os.getenv(
+            "ADMIN_SESSION_COOKIE_NAME",
+            "local_ai_admin_session",
+        ).strip() or "local_ai_admin_session"
+        self.admin_session_cookie_secure = os.getenv(
+            "ADMIN_SESSION_COOKIE_SECURE",
+            "false",
+        ).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self.admin_session_cookie_samesite = os.getenv(
+            "ADMIN_SESSION_COOKIE_SAMESITE",
+            "lax",
+        ).strip().lower() or "lax"
+        self.app_secrets_key = os.getenv("APP_SECRETS_KEY", "").strip()
         self.safe_mode_enabled = os.getenv("SAFE_MODE", "false").lower() in {
             "1",
             "true",

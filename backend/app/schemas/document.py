@@ -17,6 +17,7 @@ class DocumentRecord(BaseModel):
     size_bytes: int
     uploaded_at: str
     source_origin: str = "upload"
+    source_connector_id: str | None = None
     source_provider: str | None = None
     source_uri: str | None = None
     source_container: str | None = None
@@ -24,6 +25,7 @@ class DocumentRecord(BaseModel):
     document_title: str | None = None
     source_kind: str | None = None
     visibility: str = "standard"
+    access_usernames: list[str] = Field(default_factory=list)
     section_count: int = 0
     detected_document_type: str | None = None
     document_entities: list[str] = Field(default_factory=list)
@@ -71,6 +73,7 @@ class DocumentUploadResponse(BaseModel):
 
 class DocumentSecurityUpdateRequest(BaseModel):
     visibility: str
+    access_usernames: list[str] = Field(default_factory=list)
 
 
 class DocumentSecurityResponse(BaseModel):

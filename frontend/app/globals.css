@@ -66,3 +66,11 @@ body {
 *::-webkit-scrollbar-track {
   background: transparent;
 }
+
+.sidebar-scroll-left {
+  transform: rotateY(180deg);
+}
+
+.sidebar-scroll-left > * {
+  transform: rotateY(180deg);
+}

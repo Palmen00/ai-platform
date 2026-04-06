@@ -1,7 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.schemas.chat import ChatRequest, ChatResponse
-from app.services.auth import auth_service, get_admin_token
+from app.services.auth import (
+    auth_service,
+    get_session_token,
+    require_authenticated_session,
+)
 from app.services.chat_orchestrator import ChatOrchestrator
 from app.services.logging_service import log_event
 
@@ -12,12 +16,15 @@ chat_orchestrator = ChatOrchestrator()
 @router.post("/chat", response_model=ChatResponse)
 def chat(
     payload: ChatRequest,
-    admin_token: str | None = Depends(get_admin_token),
+    session=Depends(require_authenticated_session),
+    session_token: str | None = Depends(get_session_token),
 ) -> ChatResponse:
     try:
         response = chat_orchestrator.respond(
             payload,
-            is_admin=auth_service.has_admin_access(admin_token),
+            is_admin=auth_service.has_admin_access(session_token),
+            owner_username=session.username if session else None,
+            viewer_username=session.username if session else None,
         )
         log_event(
             "chat.reply",

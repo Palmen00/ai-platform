@@ -67,6 +67,7 @@ class ConversationSummary(BaseModel):
     model: str | None = None
     document_ids: list[str] = Field(default_factory=list)
     message_count: int = 0
+    owner_username: str | None = None
     created_at: str
     updated_at: str
 

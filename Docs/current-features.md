@@ -144,7 +144,8 @@ The project now has a functional MVP foundation in place with:
 ## Highest-Priority Next Work
 
 - add a first explicit role model such as `admin` and `viewer`
-- decide how connector secrets and tokens should be stored more safely than plain environment configuration
+- admin auth now uses password hashes and `HttpOnly` session cookies instead of cleartext password checks and browser session storage
+- connector manifests can now persist future secret provider settings encrypted at rest through `APP_SECRETS_KEY`
 - keep improving answer naturalness and OCR phrasing
 - keep reducing duplicate or noisy sources
 - expand eval coverage across more document types and business-style questions

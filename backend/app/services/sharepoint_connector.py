@@ -115,10 +115,13 @@ class SharePointConnectorService:
                             file_path=local_path,
                             original_name=remote_file["name"],
                             content_type=self.document_service._guess_content_type(local_path),
+                            source_connector_id=connector.id,
                             source_provider=connector.provider,
                             source_uri=remote_file["source_uri"],
                             source_container=connector.container or connector.name,
                             source_last_modified_at=remote_file["last_modified_at"],
+                            visibility=connector.document_visibility,
+                            access_usernames=connector.access_usernames,
                         )
                     except ValueError:
                         document_id = None

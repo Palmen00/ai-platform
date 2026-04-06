@@ -5,13 +5,16 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { siteConfig } from "../../../config/site";
 import {
+  AuthStatusResponse,
   ConversationSummary,
   deleteConversation,
+  getAuthStatus,
   getConversations,
   updateConversationTitle,
 } from "../../../lib/api";
 
 const CONVERSATIONS_UPDATED_EVENT = "conversations:updated";
+const AUTH_UPDATED_EVENT = "auth:updated";
 
 function formatUpdatedAt(value: string) {
   return new Date(value).toLocaleDateString([], {
@@ -25,6 +28,7 @@ export function ConversationSidebar() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  const [authStatus, setAuthStatus] = useState<AuthStatusResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
   const [showAll, setShowAll] = useState(false);
@@ -46,6 +50,17 @@ export function ConversationSidebar() {
     setError("");
 
     try {
+      const nextAuthStatus = await getAuthStatus();
+      if (loadRequestIdRef.current !== requestId) {
+        return;
+      }
+      setAuthStatus(nextAuthStatus);
+
+      if (nextAuthStatus.auth_enabled && !nextAuthStatus.authenticated) {
+        setConversations([]);
+        return;
+      }
+
       const payload = await getConversations();
       if (loadRequestIdRef.current !== requestId) {
         return;
@@ -134,16 +149,22 @@ export function ConversationSidebar() {
       void loadConversations();
     }
 
+    function handleAuthUpdated() {
+      void loadConversations();
+    }
+
     window.addEventListener(
       CONVERSATIONS_UPDATED_EVENT,
       handleConversationUpdated
     );
+    window.addEventListener(AUTH_UPDATED_EVENT, handleAuthUpdated);
 
     return () => {
       window.removeEventListener(
         CONVERSATIONS_UPDATED_EVENT,
         handleConversationUpdated
       );
+      window.removeEventListener(AUTH_UPDATED_EVENT, handleAuthUpdated);
     };
   }, [pathname, searchParams]);
 
@@ -179,27 +200,29 @@ export function ConversationSidebar() {
     : filteredConversations.slice(0, siteConfig.chat.sidebarConversationLimit);
   const hasMoreConversations =
     filteredConversations.length > siteConfig.chat.sidebarConversationLimit;
+  const requiresLogin = !!authStatus?.auth_enabled && !authStatus?.authenticated;
+  const newChatHref = requiresLogin ? "/login?next=/chat" : "/chat";
 
   return (
-    <section className="flex h-full min-h-0 flex-col rounded-[1.5rem] border border-white/8 bg-white/4 p-2.5">
-      <div className="flex items-center justify-between gap-3 px-1.5 pb-2.5">
+    <section className="space-y-4">
+      <div className="flex items-center justify-between gap-3 px-2">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold tracking-tight text-white">
+          <h3 className="text-sm font-semibold tracking-tight text-slate-900">
             {siteConfig.chat.sidebarSubtitle}
           </h3>
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs uppercase tracking-[0.18em] text-slate-400">
             {siteConfig.chat.sidebarTitle}
           </p>
         </div>
         <Link
-          href="/chat"
-          className="rounded-lg bg-white px-2.5 py-2 text-[11px] font-semibold text-slate-950 transition hover:bg-slate-200"
+          href={newChatHref}
+          className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
         >
-          {siteConfig.chat.newConversationLabel}
+          {requiresLogin ? "Sign in" : siteConfig.chat.newConversationLabel}
         </Link>
       </div>
 
-      <div className="pb-2.5">
+      <div className="px-1">
         <input
           value={searchQuery}
           onChange={(event) => {
@@ -208,39 +231,43 @@ export function ConversationSidebar() {
             setOpenMenuConversationId("");
           }}
           placeholder={siteConfig.chat.searchConversationPlaceholder}
-          className="w-full rounded-xl border border-white/10 bg-white/6 px-3 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-white/20 focus:bg-white/8"
+          className="w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-300"
         />
       </div>
 
       {error && (
-        <div className="mb-3 rounded-2xl bg-red-500/12 px-3 py-2 text-sm text-red-200 ring-1 ring-red-500/20">
+        <div className="mb-3 rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200">
           {error}
         </div>
       )}
 
-      <div
-        ref={containerRef}
-        className="min-h-0 flex-1 space-y-1 overflow-y-auto pr-1"
-      >
+      <div ref={containerRef} className="space-y-1 pr-1">
+        {requiresLogin && !isLoading && (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+            Sign in through Login to load saved conversations.
+          </div>
+        )}
+
         {isLoading && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-400">
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
             {siteConfig.chat.loadingConversationsLabel}
           </div>
         )}
 
-        {!isLoading && conversations.length === 0 && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-400">
+        {!isLoading && !requiresLogin && conversations.length === 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
             {siteConfig.chat.emptyConversationLabel}
           </div>
         )}
 
-        {!isLoading && conversations.length > 0 && filteredConversations.length === 0 && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-sm text-slate-400">
+        {!isLoading && !requiresLogin && conversations.length > 0 && filteredConversations.length === 0 && (
+          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
             {siteConfig.chat.emptyFilteredConversationLabel}
           </div>
         )}
 
-        {visibleConversations.map((conversation) => {
+        {!requiresLogin &&
+          visibleConversations.map((conversation) => {
           const href = `/chat?conversation=${conversation.id}`;
           const isActive = conversation.id === activeConversationId;
           const isEditing = editingConversationId === conversation.id;
@@ -249,10 +276,10 @@ export function ConversationSidebar() {
           return (
             <div
               key={conversation.id}
-              className={`relative block rounded-xl border px-2.5 py-2.5 transition ${
+              className={`relative block rounded-2xl border px-3 py-2.5 transition ${
                 isActive
-                  ? "border-white/12 bg-white text-slate-950 shadow-sm"
-                  : "border-white/6 bg-transparent text-slate-100 hover:bg-white/6"
+                  ? "border-slate-200 bg-white text-slate-950 shadow-sm"
+                  : "border-transparent bg-transparent text-slate-700 hover:border-slate-200 hover:bg-white hover:shadow-sm"
               }`}
             >
               {isEditing ? (
@@ -264,14 +291,14 @@ export function ConversationSidebar() {
                     value={titleDraft}
                     onChange={(event) => setTitleDraft(event.target.value)}
                     placeholder={siteConfig.chat.renameConversationPlaceholder}
-                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[13px] text-slate-950 outline-none transition focus:border-slate-500"
+                    className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-[13px] text-slate-950 outline-none transition focus:border-slate-500"
                     autoFocus
                   />
                   <div className="flex gap-2">
                     <button
                       type="submit"
                       disabled={!titleDraft.trim() || isPending}
-                      className="rounded-lg bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      className="rounded-xl bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
                       {siteConfig.chat.renameConversationSaveLabel}
                     </button>
@@ -279,7 +306,7 @@ export function ConversationSidebar() {
                       type="button"
                       onClick={cancelRename}
                       disabled={isPending}
-                      className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-xl border border-slate-300 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {siteConfig.chat.renameConversationCancelLabel}
                     </button>
@@ -312,10 +339,10 @@ export function ConversationSidebar() {
                           )
                         }
                         disabled={isPending}
-                        className={`flex h-7 w-7 items-center justify-center rounded-lg transition ${
+                        className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${
                           isActive
                             ? "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                            : "text-slate-400 hover:bg-white/10 hover:text-white"
+                            : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                         } disabled:cursor-not-allowed disabled:opacity-60`}
                         aria-label="Conversation actions"
                       >
@@ -331,31 +358,19 @@ export function ConversationSidebar() {
 
                       {openMenuConversationId === conversation.id && (
                         <div
-                          className={`absolute right-0 top-8 z-20 min-w-32 rounded-xl border shadow-lg ${
-                            isActive
-                              ? "border-slate-200 bg-white"
-                              : "border-white/10 bg-slate-900"
-                          }`}
+                          className="absolute right-0 top-9 z-20 min-w-32 rounded-2xl border border-slate-200 bg-white shadow-lg"
                         >
                           <button
                             type="button"
                             onClick={() => startRename(conversation)}
-                            className={`block w-full px-3 py-2 text-left text-[12px] font-medium transition ${
-                              isActive
-                                ? "text-slate-700 hover:bg-slate-50"
-                                : "text-slate-200 hover:bg-white/5"
-                            }`}
+                            className="block w-full px-3 py-2.5 text-left text-[12px] font-medium text-slate-700 transition hover:bg-slate-50"
                           >
                             {siteConfig.chat.renameConversationLabel}
                           </button>
                           <button
                             type="button"
                             onClick={() => void handleDelete(conversation.id)}
-                            className={`block w-full px-3 py-2 text-left text-[12px] font-medium transition ${
-                              isActive
-                                ? "text-red-700 hover:bg-red-50"
-                                : "text-red-300 hover:bg-red-500/10"
-                            }`}
+                            className="block w-full px-3 py-2.5 text-left text-[12px] font-medium text-red-700 transition hover:bg-red-50"
                           >
                             {siteConfig.chat.deleteConversationLabel}
                           </button>
@@ -367,13 +382,13 @@ export function ConversationSidebar() {
               )}
             </div>
           );
-        })}
+          })}
       </div>
 
-      {hasMoreConversations && (
+      {!requiresLogin && hasMoreConversations && (
         <button
           onClick={() => setShowAll((current) => !current)}
-          className="mt-2.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+          className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
         >
           {showAll
             ? siteConfig.chat.showLessConversationsLabel

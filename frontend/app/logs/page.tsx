@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AppShell } from "../../components/AppShell";
 import { siteConfig } from "../../config/site";
-import { getLogs, LogEvent } from "../../lib/api";
+import { AuthStatusResponse, getAuthStatus, getLogs, LogEvent } from "../../lib/api";
 
 type LogsState = {
   events: LogEvent[];
@@ -11,6 +12,8 @@ type LogsState = {
 };
 
 export default function LogsPage() {
+  const [authStatus, setAuthStatus] = useState<AuthStatusResponse | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [logs, setLogs] = useState<LogsState>({ events: [], rawLines: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -36,7 +39,34 @@ export default function LogsPage() {
   }
 
   useEffect(() => {
-    void loadLogs();
+    let isMounted = true;
+
+    async function loadPage() {
+      try {
+        const nextAuthStatus = await getAuthStatus();
+        if (!isMounted) {
+          return;
+        }
+        setAuthStatus(nextAuthStatus);
+        if (!nextAuthStatus.auth_enabled || nextAuthStatus.role === "admin") {
+          await loadLogs();
+        }
+      } catch {
+        if (isMounted) {
+          setAuthStatus(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsAuthLoading(false);
+        }
+      }
+    }
+
+    void loadPage();
+
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const eventTypes = useMemo(
@@ -53,8 +83,11 @@ export default function LogsPage() {
       const matchesType =
         typeFilter === "all" || event.event_type === typeFilter;
       const eventText = [
+        event.category,
         event.event_type,
         event.status,
+        event.actor_username ?? "",
+        event.actor_role ?? "",
         event.message,
         JSON.stringify(event.details),
       ]
@@ -72,6 +105,40 @@ export default function LogsPage() {
       !normalizedSearch ? true : line.toLowerCase().includes(normalizedSearch)
     );
   }, [logs.rawLines, normalizedSearch]);
+
+  if (isAuthLoading) {
+    return (
+      <AppShell contentClassName="p-4 md:p-6 xl:p-8">
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-10 text-sm text-slate-600 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8">
+          Loading logs...
+        </section>
+      </AppShell>
+    );
+  }
+
+  if (authStatus?.auth_enabled && authStatus.role !== "admin") {
+    return (
+      <AppShell contentClassName="p-4 md:p-6 xl:p-8">
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8 md:py-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+            {siteConfig.logs.title}
+          </p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+            Admin access required
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+            Logs stay limited to admins because they can expose backend activity, connector state, and debugging details.
+          </p>
+          <Link
+            href="/login?next=/logs"
+            className="mt-5 inline-flex rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+          >
+            Open Login
+          </Link>
+        </section>
+      </AppShell>
+    );
+  }
 
   function downloadLogs() {
     const payload = {
@@ -207,6 +274,9 @@ export default function LogsPage() {
                   <th className="px-3 py-2">
                     {siteConfig.logs.columns.timestamp}
                   </th>
+                  <th className="px-3 py-2">
+                    {siteConfig.logs.columns.actor}
+                  </th>
                   <th className="px-3 py-2">{siteConfig.logs.columns.type}</th>
                   <th className="px-3 py-2">
                     {siteConfig.logs.columns.status}
@@ -227,6 +297,22 @@ export default function LogsPage() {
                   >
                     <td className="px-3 py-3 text-xs text-slate-500">
                       {new Date(event.timestamp).toLocaleString()}
+                    </td>
+                    <td className="px-3 py-3 text-sm text-slate-600">
+                      {event.actor_username ? (
+                        <div className="space-y-1">
+                          <div className="font-medium text-slate-900">
+                            {event.actor_username}
+                          </div>
+                          <div className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                            {event.actor_role ?? event.category}
+                          </div>
+                        </div>
+                      ) : (
+                        <span className="text-xs uppercase tracking-[0.12em] text-slate-400">
+                          {event.category}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-3 text-sm font-medium text-slate-900">
                       {event.event_type}
@@ -255,10 +341,10 @@ export default function LogsPage() {
 
                 {!isLoading && filteredEvents.length === 0 && (
                   <tr>
-                    <td
-                      colSpan={5}
-                      className="px-3 py-8 text-center text-slate-500"
-                    >
+                      <td
+                        colSpan={6}
+                        className="px-3 py-8 text-center text-slate-500"
+                      >
                       {siteConfig.logs.emptyEvents}
                     </td>
                   </tr>

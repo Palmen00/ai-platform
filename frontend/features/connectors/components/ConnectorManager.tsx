@@ -6,6 +6,7 @@ import { ConnectorManifest } from "../../../lib/api";
 
 type ConnectorManagerProps = {
   connectors: ConnectorManifest[];
+  availableUsernames: string[];
   isLoading: boolean;
   isRefreshing: boolean;
   isCreating: boolean;
@@ -44,6 +45,8 @@ type ConnectorManagerProps = {
     auth_mode: string;
     root_path?: string | null;
     container?: string | null;
+    document_visibility?: "standard" | "hidden" | "restricted";
+    access_usernames?: string[];
     include_patterns: string[];
     exclude_patterns: string[];
     export_formats: string[];
@@ -58,6 +61,8 @@ type ConnectorManagerProps = {
       auth_mode?: string;
       root_path?: string | null;
       container?: string | null;
+      document_visibility?: "standard" | "hidden" | "restricted";
+      access_usernames?: string[];
       include_patterns?: string[];
       exclude_patterns?: string[];
       export_formats?: string[];
@@ -279,8 +284,22 @@ function inferPreset(connector: ConnectorManifest): SyncPreset {
   return "all_text_like";
 }
 
+const connectorPanelClass =
+  "rounded-[1.15rem] border border-slate-200/90 bg-white/95 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]";
+const connectorSubtlePanelClass =
+  "rounded-[1rem] border border-slate-200 bg-slate-50/85 p-4";
+const connectorInputClass =
+  "w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-slate-400";
+const connectorMutedInputClass =
+  "w-full rounded-xl border border-slate-200 bg-slate-100 px-3 py-2.5 text-sm text-slate-500 outline-none";
+const connectorSecondaryButtonClass =
+  "rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60";
+const connectorPrimaryButtonClass =
+  "rounded-xl border border-slate-900 bg-slate-900 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60";
+
 export function ConnectorManager({
   connectors,
+  availableUsernames,
   isLoading,
   isRefreshing,
   isCreating,
@@ -305,6 +324,10 @@ export function ConnectorManager({
   const [name, setName] = useState("Google Drive Root");
   const [rootPath, setRootPath] = useState("");
   const [container, setContainer] = useState("");
+  const [documentVisibility, setDocumentVisibility] = useState<
+    "standard" | "hidden" | "restricted"
+  >("standard");
+  const [accessUsernames, setAccessUsernames] = useState("");
   const [notes, setNotes] = useState("");
   const [folderId, setFolderId] = useState("");
   const [driveId, setDriveId] = useState("");
@@ -313,6 +336,10 @@ export function ConnectorManager({
   const [editingConnectorId, setEditingConnectorId] = useState("");
   const [editingName, setEditingName] = useState("");
   const [editingContainer, setEditingContainer] = useState("");
+  const [editingDocumentVisibility, setEditingDocumentVisibility] = useState<
+    "standard" | "hidden" | "restricted"
+  >("standard");
+  const [editingAccessUsernames, setEditingAccessUsernames] = useState("");
   const [editingRootPath, setEditingRootPath] = useState("");
   const [editingNotes, setEditingNotes] = useState("");
   const [editingFolderId, setEditingFolderId] = useState("");
@@ -351,6 +378,8 @@ export function ConnectorManager({
     setEditingConnectorId("");
     setEditingName("");
     setEditingContainer("");
+    setEditingDocumentVisibility("standard");
+    setEditingAccessUsernames("");
     setEditingRootPath("");
     setEditingNotes("");
     setEditingFolderId("");
@@ -364,6 +393,8 @@ export function ConnectorManager({
     setEditingConnectorId(connector.id);
     setEditingName(connector.name);
     setEditingContainer(connector.container ?? "");
+    setEditingDocumentVisibility(connector.document_visibility);
+    setEditingAccessUsernames(connector.access_usernames.join(", "));
     setEditingRootPath(connector.root_path ?? "");
     setEditingNotes(connector.notes ?? "");
     setEditingFolderId(connector.provider_settings.folder_id ?? "");
@@ -382,6 +413,8 @@ export function ConnectorManager({
       auth_mode: suggestedAuthMode,
       root_path: provider === "local" ? rootPath.trim() || null : null,
       container: suggestedContainer,
+      document_visibility: documentVisibility,
+      access_usernames: parseAccessUsernames(accessUsernames),
       include_patterns: selectedPresetConfig.include_patterns,
       exclude_patterns: selectedPresetConfig.exclude_patterns,
       export_formats: selectedPresetConfig.export_formats,
@@ -402,6 +435,8 @@ export function ConnectorManager({
       root_path:
         connector.provider === "local" ? editingRootPath.trim() || null : null,
       container: editingContainer.trim() || null,
+      document_visibility: editingDocumentVisibility,
+      access_usernames: parseAccessUsernames(editingAccessUsernames),
       include_patterns: presetConfig.include_patterns,
       exclude_patterns: presetConfig.exclude_patterns,
       export_formats: presetConfig.export_formats,
@@ -416,6 +451,13 @@ export function ConnectorManager({
     if (updated) {
       resetEditingState();
     }
+  }
+
+  function parseAccessUsernames(value: string) {
+    return value
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
   }
 
   function handleCreateBrowse() {
@@ -491,7 +533,7 @@ export function ConnectorManager({
     );
 
     return (
-      <div className="mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-4 text-sm text-slate-600 ring-1 ring-slate-200">
+      <div className="mt-3 rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm text-slate-600">
         <p className="font-semibold text-slate-900">
           {siteConfig.connectors.folderPickerTitle}
         </p>
@@ -506,7 +548,7 @@ export function ConnectorManager({
             {lastBrowseResult.folders.map((folder) => (
               <div
                 key={`${folder.provider}:${folder.id}`}
-                className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3 py-2"
+                className="flex items-center justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2"
               >
                 <div className="min-w-0">
                   <div className="truncate font-medium text-slate-900">
@@ -519,7 +561,7 @@ export function ConnectorManager({
                 <button
                   type="button"
                   onClick={() => applyBrowsedFolder(target, connector, folder)}
-                  className="shrink-0 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
+                  className="shrink-0 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:bg-slate-100"
                 >
                   {siteConfig.connectors.folderPickerPick}
                 </button>
@@ -536,16 +578,16 @@ export function ConnectorManager({
   }
 
   return (
-    <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
-      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+    <section className={connectorPanelClass}>
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
             {siteConfig.connectors.title}
           </p>
-          <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+          <h3 className="mt-1.5 text-lg font-semibold tracking-tight text-slate-950">
             {siteConfig.connectors.title}
           </h3>
-          <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+          <p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-600">
             {siteConfig.connectors.subtitle}
           </p>
         </div>
@@ -553,7 +595,7 @@ export function ConnectorManager({
         <button
           type="button"
           onClick={() => void onRefresh()}
-          className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+          className={connectorSecondaryButtonClass}
         >
           {siteConfig.connectors.refreshButton}
         </button>
@@ -561,7 +603,7 @@ export function ConnectorManager({
 
       {(error || statusMessage) && (
         <div
-          className={`mt-5 rounded-2xl px-4 py-3 text-sm shadow-sm ${
+          className={`mt-4 rounded-xl px-3 py-2.5 text-sm ${
             error
               ? "bg-red-50 text-red-700 ring-1 ring-red-200"
               : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
@@ -571,10 +613,10 @@ export function ConnectorManager({
         </div>
       )}
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
         <form
           onSubmit={(event) => void handleSubmit(event)}
-          className="rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-5"
+          className={connectorSubtlePanelClass}
         >
           <div className="mb-4">
             <h4 className="text-base font-semibold text-slate-900">
@@ -585,7 +627,7 @@ export function ConnectorManager({
             </p>
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
+          <div className="grid gap-3 md:grid-cols-2">
             <label className="block text-sm text-slate-700">
               <span className="mb-2 block font-medium">
                 {siteConfig.connectors.fields.name}
@@ -593,7 +635,7 @@ export function ConnectorManager({
               <input
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                className={connectorInputClass}
                 required
               />
             </label>
@@ -615,7 +657,7 @@ export function ConnectorManager({
                     setName("Local Folder");
                   }
                 }}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                className={connectorInputClass}
               >
                 <option value="google_drive">Google Drive</option>
                 <option value="sharepoint">SharePoint</option>
@@ -630,20 +672,66 @@ export function ConnectorManager({
               <input
                 value={suggestedAuthMode}
                 readOnly
-                className="w-full rounded-2xl border border-slate-200 bg-slate-100 px-4 py-3 text-sm text-slate-500 outline-none"
+                className={connectorMutedInputClass}
+              />
+            </label>
+
+                        <label className="block text-sm text-slate-700">
+                          <span className="mb-2 block font-medium">
+                            {siteConfig.connectors.fields.container}
+                          </span>
+              <input
+                value={container}
+                onChange={(event) => setContainer(event.target.value)}
+                placeholder={suggestedContainer}
+                className={connectorInputClass}
               />
             </label>
 
             <label className="block text-sm text-slate-700">
               <span className="mb-2 block font-medium">
-                {siteConfig.connectors.fields.container}
+                {siteConfig.connectors.fields.documentVisibility}
+              </span>
+              <select
+                value={documentVisibility}
+                onChange={(event) =>
+                  setDocumentVisibility(
+                    event.target.value as "standard" | "hidden" | "restricted"
+                  )
+                }
+                className={connectorInputClass}
+              >
+                <option value="standard">
+                  {siteConfig.connectors.documentVisibilityOptions.standard}
+                </option>
+                <option value="hidden">
+                  {siteConfig.connectors.documentVisibilityOptions.hidden}
+                </option>
+                <option value="restricted">
+                  {siteConfig.connectors.documentVisibilityOptions.restricted}
+                </option>
+              </select>
+            </label>
+
+            <label className="block text-sm text-slate-700 md:col-span-2">
+              <span className="mb-2 block font-medium">
+                {siteConfig.connectors.fields.accessUsers}
               </span>
               <input
-                value={container}
-                onChange={(event) => setContainer(event.target.value)}
-                placeholder={suggestedContainer}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                value={accessUsernames}
+                onChange={(event) => setAccessUsernames(event.target.value)}
+                placeholder={siteConfig.connectors.accessUsersPlaceholder}
+                disabled={documentVisibility !== "restricted"}
+                className={`${connectorInputClass} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
               />
+              <p className="mt-2 text-xs leading-6 text-slate-500">
+                {documentVisibility === "restricted"
+                  ? siteConfig.connectors.accessUsersHelp
+                  : siteConfig.connectors.accessUsersDisabledHelp}
+                {availableUsernames.length > 0
+                  ? ` ${siteConfig.connectors.availableUsersLabel}: ${availableUsernames.join(", ")}`
+                  : ""}
+              </p>
             </label>
 
             {provider === "local" && (
@@ -656,14 +744,14 @@ export function ConnectorManager({
                     value={rootPath}
                     onChange={(event) => setRootPath(event.target.value)}
                     placeholder="C:\\Documents\\Knowledge"
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                    className={connectorInputClass}
                     required={provider === "local"}
                   />
                   <button
                     type="button"
                     onClick={handleCreateBrowse}
                     disabled={isBrowsing || !rootPath.trim()}
-                    className="shrink-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    className={`shrink-0 ${connectorSecondaryButtonClass}`}
                   >
                     {isBrowsing
                       ? siteConfig.connectors.browsingFoldersButton
@@ -684,13 +772,13 @@ export function ConnectorManager({
                       value={folderId}
                       onChange={(event) => setFolderId(event.target.value)}
                       placeholder={siteConfig.connectors.folderIdPlaceholder}
-                      className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                      className={connectorInputClass}
                     />
                     <button
                       type="button"
                       onClick={handleCreateBrowse}
                       disabled={isBrowsing}
-                      className="shrink-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={`shrink-0 ${connectorSecondaryButtonClass}`}
                     >
                       {isBrowsing
                         ? siteConfig.connectors.browsingFoldersButton
@@ -707,7 +795,7 @@ export function ConnectorManager({
                     value={driveId}
                     onChange={(event) => setDriveId(event.target.value)}
                     placeholder={siteConfig.connectors.driveIdPlaceholder}
-                    className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                    className={connectorInputClass}
                   />
                 </label>
               </>
@@ -724,7 +812,7 @@ export function ConnectorManager({
                 }
                 inputMode="numeric"
                 placeholder={siteConfig.connectors.maxFilesPlaceholder}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                className={connectorInputClass}
               />
             </label>
 
@@ -737,7 +825,7 @@ export function ConnectorManager({
                 onChange={(event) =>
                   setSelectedPreset(event.target.value as SyncPreset)
                 }
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                className={connectorInputClass}
               >
                 <option value="recommended">
                   {siteConfig.connectors.presetRecommended}
@@ -762,7 +850,7 @@ export function ConnectorManager({
                 value={notes}
                 onChange={(event) => setNotes(event.target.value)}
                 rows={3}
-                className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                className={connectorInputClass}
                 placeholder={siteConfig.connectors.notesPlaceholder}
               />
             </label>
@@ -770,7 +858,7 @@ export function ConnectorManager({
 
           {renderFolderPicker("create")}
 
-          <div className="mt-5 rounded-2xl bg-white px-4 py-3 text-xs leading-6 text-slate-500 ring-1 ring-slate-200">
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-3 text-xs leading-6 text-slate-500">
             <p className="font-medium text-slate-600">
               {siteConfig.connectors.setupTitle}
             </p>
@@ -779,11 +867,11 @@ export function ConnectorManager({
             <p className="mt-2">{siteConfig.connectors.patternsHint}</p>
           </div>
 
-          <div className="mt-5 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="submit"
               disabled={isCreating}
-              className="rounded-2xl border border-slate-900 bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+              className={connectorPrimaryButtonClass}
             >
               {isCreating
                 ? siteConfig.connectors.creatingButton
@@ -792,7 +880,7 @@ export function ConnectorManager({
           </div>
         </form>
 
-        <div className="rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-5">
+        <div className={connectorSubtlePanelClass}>
           <div className="mb-4">
             <h4 className="text-base font-semibold text-slate-900">
               {siteConfig.connectors.savedTitle}
@@ -804,19 +892,19 @@ export function ConnectorManager({
 
           <div className="space-y-3">
             {isLoading && connectors.length === 0 && (
-              <div className="rounded-2xl bg-white px-4 py-4 text-sm text-slate-500 ring-1 ring-slate-200">
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-500">
                 {siteConfig.connectors.loadingLabel}
               </div>
             )}
 
             {isRefreshing && connectors.length > 0 && (
-              <div className="rounded-2xl bg-white px-4 py-4 text-sm text-slate-500 ring-1 ring-slate-200">
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-500">
                 {siteConfig.connectors.refreshingLabel}
               </div>
             )}
 
             {!isLoading && connectors.length === 0 && (
-              <div className="rounded-2xl bg-white px-4 py-4 text-sm text-slate-500 ring-1 ring-slate-200">
+              <div className="rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm text-slate-500">
                 {siteConfig.connectors.emptyState}
               </div>
             )}
@@ -824,7 +912,7 @@ export function ConnectorManager({
             {connectors.map((connector) => (
               <div
                 key={connector.id}
-                className="rounded-2xl bg-white px-4 py-4 ring-1 ring-slate-200"
+                className="rounded-lg border border-slate-200 bg-white px-3 py-3"
               >
                 {editingConnectorId === connector.id ? (
                   <div className="space-y-4">
@@ -836,7 +924,7 @@ export function ConnectorManager({
                         <input
                           value={editingName}
                           onChange={(event) => setEditingName(event.target.value)}
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                          className={connectorInputClass}
                         />
                       </label>
 
@@ -849,12 +937,63 @@ export function ConnectorManager({
                           onChange={(event) =>
                             setEditingContainer(event.target.value)
                           }
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
-                        />
-                      </label>
+                            className={connectorInputClass}
+                          />
+                        </label>
 
-                      {connector.provider === "local" && (
+                        <label className="block text-sm text-slate-700">
+                          <span className="mb-2 block font-medium">
+                            {siteConfig.connectors.fields.documentVisibility}
+                          </span>
+                          <select
+                            value={editingDocumentVisibility}
+                            onChange={(event) =>
+                              setEditingDocumentVisibility(
+                                event.target.value as
+                                  | "standard"
+                                  | "hidden"
+                                  | "restricted"
+                              )
+                            }
+                            className={connectorInputClass}
+                          >
+                            <option value="standard">
+                              {siteConfig.connectors.documentVisibilityOptions.standard}
+                            </option>
+                            <option value="hidden">
+                              {siteConfig.connectors.documentVisibilityOptions.hidden}
+                            </option>
+                            <option value="restricted">
+                              {siteConfig.connectors.documentVisibilityOptions.restricted}
+                            </option>
+                          </select>
+                        </label>
+
                         <label className="block text-sm text-slate-700 md:col-span-2">
+                          <span className="mb-2 block font-medium">
+                            {siteConfig.connectors.fields.accessUsers}
+                          </span>
+                          <input
+                            value={editingAccessUsernames}
+                            onChange={(event) =>
+                              setEditingAccessUsernames(event.target.value)
+                            }
+                            placeholder={siteConfig.connectors.accessUsersPlaceholder}
+                            disabled={editingDocumentVisibility !== "restricted"}
+                            className={`${connectorInputClass} disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400`}
+                          />
+                          <p className="mt-2 text-xs leading-6 text-slate-500">
+                            {editingDocumentVisibility === "restricted"
+                              ? siteConfig.connectors.accessUsersHelp
+                              : siteConfig.connectors.accessUsersDisabledHelp}
+                            {availableUsernames.length > 0
+                              ? ` ${siteConfig.connectors.availableUsersLabel}: ${availableUsernames.join(", ")}`
+                              : ""}
+                          </p>
+                        </label>
+
+                        {connector.provider === "local" && (
+                          <label className="block text-sm text-slate-700 md:col-span-2">
                           <span className="mb-2 block font-medium">
                             {siteConfig.connectors.fields.rootPath}
                           </span>
@@ -864,13 +1003,13 @@ export function ConnectorManager({
                               onChange={(event) =>
                                 setEditingRootPath(event.target.value)
                               }
-                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                              className={connectorInputClass}
                             />
                             <button
                               type="button"
                               onClick={() => handleEditBrowse(connector)}
                               disabled={isBrowsing || !editingRootPath.trim()}
-                              className="shrink-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                              className={`shrink-0 ${connectorSecondaryButtonClass}`}
                             >
                               {isBrowsing
                                 ? siteConfig.connectors.browsingFoldersButton
@@ -892,13 +1031,13 @@ export function ConnectorManager({
                                 onChange={(event) =>
                                   setEditingFolderId(event.target.value)
                                 }
-                                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                                className={connectorInputClass}
                               />
                               <button
                                 type="button"
                                 onClick={() => handleEditBrowse(connector)}
                                 disabled={isBrowsing}
-                                className="shrink-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                className={`shrink-0 ${connectorSecondaryButtonClass}`}
                               >
                                 {isBrowsing
                                   ? siteConfig.connectors.browsingFoldersButton
@@ -916,7 +1055,7 @@ export function ConnectorManager({
                               onChange={(event) =>
                                 setEditingDriveId(event.target.value)
                               }
-                              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                              className={connectorInputClass}
                             />
                           </label>
                         </>
@@ -935,7 +1074,7 @@ export function ConnectorManager({
                           }
                           inputMode="numeric"
                           placeholder={siteConfig.connectors.maxFilesPlaceholder}
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                          className={connectorInputClass}
                         />
                       </label>
 
@@ -948,7 +1087,7 @@ export function ConnectorManager({
                           onChange={(event) =>
                             setEditingPreset(event.target.value as SyncPreset)
                           }
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                          className={connectorInputClass}
                         >
                           <option value="recommended">
                             {siteConfig.connectors.presetRecommended}
@@ -965,7 +1104,7 @@ export function ConnectorManager({
                         </select>
                       </label>
 
-                      <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 md:col-span-2">
+                      <label className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-700 md:col-span-2">
                         <input
                           type="checkbox"
                           checked={editingEnabled}
@@ -989,7 +1128,7 @@ export function ConnectorManager({
                           value={editingNotes}
                           onChange={(event) => setEditingNotes(event.target.value)}
                           rows={3}
-                          className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                          className={connectorInputClass}
                         />
                       </label>
                     </div>
@@ -1001,7 +1140,7 @@ export function ConnectorManager({
                         type="button"
                         onClick={() => void handleSave(connector)}
                         disabled={savingConnectorId === connector.id}
-                        className="rounded-2xl border border-slate-900 bg-slate-900 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                        className={connectorPrimaryButtonClass}
                       >
                         {savingConnectorId === connector.id
                           ? siteConfig.connectors.savingButton
@@ -1010,7 +1149,7 @@ export function ConnectorManager({
                       <button
                         type="button"
                         onClick={resetEditingState}
-                        className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                        className={connectorSecondaryButtonClass}
                       >
                         {siteConfig.connectors.cancelButton}
                       </button>
@@ -1050,6 +1189,17 @@ export function ConnectorManager({
                         {siteConfig.connectors.containerLabel}: {connector.container}
                       </div>
                     )}
+                    <div className="mt-1 text-xs text-slate-500">
+                      {siteConfig.connectors.documentVisibilityLabel}:{" "}
+                      {siteConfig.connectors.documentVisibilityOptions[connector.document_visibility]}
+                    </div>
+                    {connector.document_visibility === "restricted" &&
+                      connector.access_usernames.length > 0 && (
+                        <div className="mt-1 text-xs text-slate-500">
+                          {siteConfig.connectors.accessUsersLabel}:{" "}
+                          {connector.access_usernames.join(", ")}
+                        </div>
+                      )}
                     {connector.root_path && (
                       <div className="mt-1 text-xs text-slate-500">
                         {siteConfig.connectors.rootPathLabel}: {connector.root_path}
@@ -1089,7 +1239,7 @@ export function ConnectorManager({
                         syncingConnectorId === connector.id ||
                         !connector.enabled
                       }
-                      className="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={connectorSecondaryButtonClass}
                     >
                       {previewingConnectorId === connector.id
                         ? siteConfig.connectors.previewingSyncButton
@@ -1103,7 +1253,7 @@ export function ConnectorManager({
                         previewingConnectorId === connector.id ||
                         !connector.enabled
                       }
-                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={connectorSecondaryButtonClass}
                     >
                       {syncingConnectorId === connector.id
                         ? siteConfig.connectors.syncingButton
@@ -1112,7 +1262,7 @@ export function ConnectorManager({
                     <button
                       type="button"
                       onClick={() => startEditing(connector)}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                      className={connectorSecondaryButtonClass}
                     >
                       {siteConfig.connectors.editButton}
                     </button>
@@ -1122,7 +1272,7 @@ export function ConnectorManager({
                         void onUpdate(connector.id, { enabled: !connector.enabled })
                       }
                       disabled={savingConnectorId === connector.id}
-                      className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className={connectorSecondaryButtonClass}
                     >
                       {connector.enabled
                         ? siteConfig.connectors.disableButton
@@ -1136,7 +1286,7 @@ export function ConnectorManager({
                         }
                       }}
                       disabled={deletingConnectorId === connector.id}
-                      className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {deletingConnectorId === connector.id
                         ? siteConfig.connectors.deletingButton
@@ -1147,31 +1297,31 @@ export function ConnectorManager({
                 )}
 
                 <div className="mt-3 flex flex-wrap gap-2 text-[11px] text-slate-500">
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5">
                     +{connector.include_patterns.length} include patterns
                   </span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5">
                     -{connector.exclude_patterns.length} exclude patterns
                   </span>
-                  <span className="rounded-full bg-slate-100 px-2.5 py-1">
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5">
                     {connector.export_formats.join(", ")}
                   </span>
                 </div>
 
                 {lastSyncResult?.connector_id === connector.id && (
-                  <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/80 p-3">
                     <div className="flex items-center gap-2">
                       <p className="text-sm font-semibold text-slate-900">
                         {siteConfig.connectors.syncSummaryTitle}
                       </p>
                       {lastSyncResult.dry_run && (
-                        <span className="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.16em] text-amber-700">
+                        <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] text-amber-700">
                           {siteConfig.connectors.previewBadge}
                         </span>
                       )}
                     </div>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-4">
-                      <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                    <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                         <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                           {siteConfig.connectors.syncSummaryScannedLabel}
                         </p>
@@ -1179,7 +1329,7 @@ export function ConnectorManager({
                           {lastSyncResult.scanned_count}
                         </p>
                       </div>
-                      <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                         <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                           {siteConfig.connectors.syncSummaryImportedLabel}
                         </p>
@@ -1187,7 +1337,7 @@ export function ConnectorManager({
                           {lastSyncResult.imported_count}
                         </p>
                       </div>
-                      <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                         <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                           {siteConfig.connectors.syncSummaryUpdatedLabel}
                         </p>
@@ -1195,7 +1345,7 @@ export function ConnectorManager({
                           {lastSyncResult.updated_count}
                         </p>
                       </div>
-                      <div className="rounded-xl bg-white px-3 py-2 ring-1 ring-slate-200">
+                      <div className="rounded-lg border border-slate-200 bg-white px-3 py-2">
                         <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                           {siteConfig.connectors.syncSummarySkippedLabel}
                         </p>
@@ -1214,7 +1364,7 @@ export function ConnectorManager({
                           {lastSyncResult.results.slice(0, 8).map((result) => (
                             <div
                               key={`${result.document_id}:${result.original_name}`}
-                              className="flex flex-col gap-1 rounded-xl bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-slate-200"
+                              className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600"
                             >
                               <div className="flex items-center justify-between gap-3">
                                 <span className="truncate font-medium text-slate-900">

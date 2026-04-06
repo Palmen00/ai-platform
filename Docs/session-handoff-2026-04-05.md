@@ -13,7 +13,7 @@ This is the checkpoint for the latest productization and security pass.
 
 - A first admin-auth foundation already existed and is still the base:
   - admin login/logout
-  - admin session token
+  - admin session cookie
   - protected settings/connectors/logs/system surfaces
 - `Lock settings` behavior is now clearer:
   - it only signs out the current admin session
@@ -102,7 +102,7 @@ Recommended order:
 1. Add a first explicit role model:
    - `admin`
    - `viewer`
-2. Decide how connector secrets/tokens should be stored more safely than plain environment-driven prototype configuration
+2. Move from the new app-managed encrypted-at-rest connector secret baseline to stronger host or secret-manager storage
 3. Expand document access controls beyond the first hidden-document boundary
 4. Add clearer audit logging for admin and connector actions
 

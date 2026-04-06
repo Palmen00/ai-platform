@@ -80,3 +80,63 @@ function Invoke-DockerCompose {
         Pop-Location
     }
 }
+
+function Test-QdrantHealthy {
+    param(
+        [string[]]$Urls = @(
+            "http://127.0.0.1:6333/healthz",
+            "http://127.0.0.1:6333/collections"
+        ),
+        [int]$TimeoutSeconds = 3
+    )
+
+    foreach ($url in $Urls) {
+        try {
+            $response = Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec $TimeoutSeconds
+            if (-not $response.Content) {
+                continue
+            }
+
+            $payload = $response.Content | ConvertFrom-Json
+            if ($payload.status -eq "ok") {
+                return $true
+            }
+        }
+        catch {
+            continue
+        }
+    }
+
+    return $false
+}
+
+function Ensure-QdrantRunning {
+    param(
+        [int]$TimeoutSeconds = 45
+    )
+
+    if (Test-QdrantHealthy) {
+        Write-Host "Qdrant is already healthy." -ForegroundColor Green
+        return
+    }
+
+    Write-Host "Qdrant is not reachable. Ensuring container is running..." -ForegroundColor Yellow
+    try {
+        Invoke-DockerCompose -Arguments @("up", "-d", "qdrant")
+    }
+    catch {
+        throw "Could not start Qdrant through Docker. Make sure Docker Desktop is running, then try again."
+    }
+
+    $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-QdrantHealthy) {
+            Write-Host "Qdrant is healthy." -ForegroundColor Green
+            return
+        }
+
+        Start-Sleep -Seconds 1
+    }
+
+    throw "Qdrant did not become healthy within $TimeoutSeconds seconds."
+}

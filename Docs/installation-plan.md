@@ -209,8 +209,9 @@ Optional but now recommended when testing security/admin behavior locally:
 
 15. Set these in `/.env` before starting the backend if you want admin auth enabled:
    - `AUTH_ENABLED=true`
-   - `ADMIN_PASSWORD=...`
+   - `ADMIN_PASSWORD_HASH=...`
    - `ADMIN_SESSION_SECRET=...`
+   - `APP_SECRETS_KEY=...`
 16. Optionally enable safer local behavior with:
    - `SAFE_MODE=true`
 

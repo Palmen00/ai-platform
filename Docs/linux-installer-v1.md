@@ -127,13 +127,15 @@ Recommended shape:
 2. bootstrap script downloads the installer payload
 3. installer asks a short set of questions
 4. installer writes validated config
-5. installer installs dependencies and starts services
-6. installer runs post-install verification
-7. installer prints:
+5. installer prints a preflight summary and asks for confirmation
+6. installer installs dependencies and starts services
+7. installer runs post-install verification
+8. installer prints:
    - app URL
    - admin login instructions
    - status commands
    - log commands
+9. installer writes an install report for later handoff/support
 
 The first implementation of that install-link path now lives in:
 
@@ -156,6 +158,29 @@ This lets us reuse the same installer flow for:
 - manual first-run setup
 - server provisioning
 - future CI or image-build automation
+
+The installer now also supports a reusable answer file:
+
+- `scripts/deploy/ubuntu/answer-file.example.env`
+- `scripts/deploy/ubuntu/answer-file.standard.env`
+
+That answer file can be used to:
+
+- prefill interactive setup
+- run fully non-interactive installs
+- reuse the same server profile across environments
+
+The same flow should still print a preflight summary before deploy starts.
+That keeps both manual installs and answer-file installs easy to sanity-check.
+
+The standard file should act as the first official single-server baseline:
+
+- `Balanced` profile
+- local `Ollama`
+- sign-in required from first page
+- `Safe Mode` off
+- OCR enabled
+- connector features enabled
 
 ## Setup Wizard Questions
 
@@ -196,17 +221,36 @@ Meaning:
 - `Standard`: normal product defaults
 - `Safe Mode`: stricter defaults, safer for sensitive company environments
 
-### 4. Admin Setup
+### 4. Access Mode
+
+Options:
+
+- `Require sign-in from first page`
+- `Open local access`
+
+Meaning:
+
+- `Require sign-in from first page`: login is required before opening the workspace
+- `Open local access`: app starts in local open mode and accounts can be enabled later
+
+Recommended default:
+
+- require sign-in
+
+### 5. Admin Setup
 
 Ask for:
 
+- bootstrap admin username
 - admin password
 
 Installer should then generate:
 
+- `ADMIN_PASSWORD_HASH`
 - `ADMIN_SESSION_SECRET`
+- `APP_SECRETS_KEY`
 
-### 5. Storage Location
+### 6. Storage Location
 
 Ask for:
 
@@ -216,7 +260,7 @@ Default example:
 
 - `/opt/local-ai-os/data`
 
-### 6. Network Setup
+### 7. Network Setup
 
 Ask for:
 
@@ -224,7 +268,7 @@ Ask for:
 - backend bind port
 - optional public hostname/domain
 
-### 7. OCR Enablement
+### 8. OCR Enablement
 
 Options:
 
@@ -235,7 +279,7 @@ Recommended default:
 
 - enabled
 
-### 8. Connector Readiness
+### 9. Connector Readiness
 
 Options:
 
@@ -340,8 +384,10 @@ That includes values such as:
 - `OLLAMA_BASE_URL`
 - `QDRANT_URL`
 - `AUTH_ENABLED`
-- `ADMIN_PASSWORD`
+- `ADMIN_USERNAME`
+- `ADMIN_PASSWORD_HASH`
 - `ADMIN_SESSION_SECRET`
+- `APP_SECRETS_KEY`
 - `SAFE_MODE`
 - `LOW_IMPACT_MODE`
 - ports and public API URL values
@@ -420,9 +466,11 @@ But it should still enforce a better default than raw prototype mode.
 
 Recommended baseline:
 
-- admin auth enabled by default
-- admin password required during install
+- require sign-in by default
+- bootstrap admin username and password requested when sign-in is required
+- admin password only persisted as a password hash
 - generated session secret
+- generated application secrets key for encrypted connector secrets
 - optional `safe mode`
 - no prototype tools installed by default
 - no connector secrets requested during base install

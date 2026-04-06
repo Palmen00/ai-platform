@@ -1,44 +1,11 @@
 import { API_BASE_URL } from "./config";
 
-const ADMIN_SESSION_STORAGE_KEY = "local-ai-admin-session";
-
-function getAdminSessionToken(): string {
-  if (typeof window === "undefined") {
-    return "";
-  }
-
-  return window.sessionStorage.getItem(ADMIN_SESSION_STORAGE_KEY) ?? "";
-}
-
-export function setAdminSessionToken(token: string) {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.sessionStorage.setItem(ADMIN_SESSION_STORAGE_KEY, token);
-}
-
-export function clearAdminSessionToken() {
-  if (typeof window === "undefined") {
-    return;
-  }
-
-  window.sessionStorage.removeItem(ADMIN_SESSION_STORAGE_KEY);
-}
-
 function withAdminHeaders(
   init?: RequestInit & { timeoutMs?: number }
 ): RequestInit & { timeoutMs?: number } {
-  const token = getAdminSessionToken();
-  if (!token) {
-    return init ?? {};
-  }
-
-  const headers = new Headers(init?.headers);
-  headers.set("X-Admin-Session", token);
   return {
     ...(init ?? {}),
-    headers,
+    credentials: "include",
   };
 }
 
@@ -69,16 +36,19 @@ export type AuthStatusResponse = {
   auth_configured: boolean;
   authenticated: boolean;
   safe_mode_enabled: boolean;
+  username?: string | null;
+  role?: "admin" | "viewer" | null;
   session_expires_at?: string | null;
 };
 
 export type LoginResponse = {
-  token: string;
   expires_at: string;
   auth_enabled: boolean;
   auth_configured: boolean;
   authenticated: boolean;
   safe_mode_enabled: boolean;
+  username: string;
+  role: "admin" | "viewer";
 };
 
 export type ModelItem = {
@@ -159,6 +129,7 @@ export type ConversationSummary = {
   model?: string | null;
   document_ids: string[];
   message_count: number;
+  owner_username?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -190,6 +161,7 @@ export type DocumentItem = {
   document_title?: string | null;
   source_kind?: string | null;
   visibility?: string;
+  access_usernames?: string[];
   section_count?: number;
   detected_document_type?: string | null;
   document_entities?: string[];
@@ -239,6 +211,8 @@ export type ConnectorManifest = {
   auth_mode: string;
   root_path?: string | null;
   container?: string | null;
+  document_visibility: "standard" | "hidden" | "restricted";
+  access_usernames: string[];
   include_patterns: string[];
   exclude_patterns: string[];
   export_formats: string[];
@@ -260,6 +234,8 @@ export type ConnectorCreateInput = {
   auth_mode?: string;
   root_path?: string | null;
   container?: string | null;
+  document_visibility?: "standard" | "hidden" | "restricted";
+  access_usernames?: string[];
   include_patterns?: string[];
   exclude_patterns?: string[];
   export_formats?: string[];
@@ -273,6 +249,8 @@ export type ConnectorUpdateInput = {
   auth_mode?: string;
   root_path?: string | null;
   container?: string | null;
+  document_visibility?: "standard" | "hidden" | "restricted";
+  access_usernames?: string[];
   include_patterns?: string[];
   exclude_patterns?: string[];
   export_formats?: string[];
@@ -321,6 +299,45 @@ export type ConnectorSyncResponse = {
   results: ConnectorSyncResult[];
 };
 
+export type LocalUserSummary = {
+  id: string;
+  username: string;
+  role: "admin" | "viewer";
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+  last_login_at?: string | null;
+  stats: {
+    conversation_count: number;
+    message_count: number;
+    conversation_storage_bytes: number;
+    accessible_document_count: number;
+    accessible_document_storage_bytes: number;
+  };
+};
+
+export type UsersResponse = {
+  users: LocalUserSummary[];
+};
+
+export type UserResponse = {
+  user: LocalUserSummary;
+};
+
+export type CreateUserInput = {
+  username: string;
+  password: string;
+  role?: "admin" | "viewer";
+  enabled?: boolean;
+};
+
+export type UpdateUserInput = {
+  username?: string;
+  password?: string;
+  role?: "admin" | "viewer";
+  enabled?: boolean;
+};
+
 export type DocumentBatchProcessResponse = {
   documents: DocumentItem[];
   retried_count: number;
@@ -348,6 +365,11 @@ export type DocumentPreviewResponse = {
 
 export type DocumentSecurityResponse = {
   document: DocumentItem;
+};
+
+export type DocumentSecurityUpdateInput = {
+  visibility: "standard" | "hidden" | "restricted";
+  accessUsernames?: string[];
 };
 
 export type RuntimeSettings = {
@@ -441,8 +463,12 @@ export type SystemStatusResponse = {
 export type LogEvent = {
   timestamp: string;
   event_type: string;
+  category: string;
   status: string;
   message: string;
+  actor_user_id?: string | null;
+  actor_username?: string | null;
+  actor_role?: "admin" | "viewer" | null;
   details: Record<string, unknown>;
 };
 
@@ -477,13 +503,17 @@ export async function getAuthStatus(): Promise<AuthStatusResponse> {
   return response.json();
 }
 
-export async function loginAdmin(password: string): Promise<AuthStatusResponse> {
+export async function loginUser(
+  username: string,
+  password: string
+): Promise<AuthStatusResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
   });
 
   if (!response.ok) {
@@ -491,20 +521,21 @@ export async function loginAdmin(password: string): Promise<AuthStatusResponse> 
   }
 
   const payload = (await response.json()) as LoginResponse;
-  setAdminSessionToken(payload.token);
   return {
     auth_enabled: payload.auth_enabled,
     auth_configured: payload.auth_configured,
     authenticated: payload.authenticated,
     safe_mode_enabled: payload.safe_mode_enabled,
+    username: payload.username,
+    role: payload.role,
     session_expires_at: payload.expires_at,
   };
 }
 
 export async function logoutAdmin(): Promise<void> {
-  clearAdminSessionToken();
   await fetch(`${API_BASE_URL}/auth/logout`, {
     method: "POST",
+    credentials: "include",
   });
 }
 
@@ -551,9 +582,9 @@ export async function sendChatMessage(
 }
 
 export async function getConversations(): Promise<ConversationsResponse> {
-  const response = await fetch(`${API_BASE_URL}/conversations`, {
+  const response = await fetch(`${API_BASE_URL}/conversations`, withAdminHeaders({
     cache: "no-store",
-  });
+  }));
 
   if (!response.ok) {
     throw new Error("Failed to fetch conversations");
@@ -565,13 +596,13 @@ export async function getConversations(): Promise<ConversationsResponse> {
 export async function createConversation(
   payload?: { title?: string; model?: string }
 ): Promise<ConversationDetail> {
-  const response = await fetch(`${API_BASE_URL}/conversations`, {
+  const response = await fetch(`${API_BASE_URL}/conversations`, withAdminHeaders({
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify(payload ?? {}),
-  });
+  }));
 
   if (!response.ok) {
     throw new Error("Failed to create conversation");
@@ -584,9 +615,9 @@ export async function createConversation(
 export async function getConversation(
   conversationId: string
 ): Promise<ConversationDetail> {
-  const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, {
+  const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, withAdminHeaders({
     cache: "no-store",
-  });
+  }));
 
   if (!response.ok) {
     throw new Error("Failed to fetch conversation");
@@ -597,9 +628,9 @@ export async function getConversation(
 }
 
 export async function deleteConversation(conversationId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, {
+  const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, withAdminHeaders({
     method: "DELETE",
-  });
+  }));
 
   if (!response.ok) {
     throw new Error("Failed to delete conversation");
@@ -610,7 +641,7 @@ export async function updateConversationTitle(
   conversationId: string,
   title: string
 ): Promise<ConversationDetail> {
-  const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, {
+  const response = await fetch(`${API_BASE_URL}/conversations/${conversationId}`, withAdminHeaders({
     method: "PUT",
     headers: {
       "Content-Type": "application/json",
@@ -618,7 +649,7 @@ export async function updateConversationTitle(
     body: JSON.stringify({
       title,
     }),
-  });
+  }));
 
   if (!response.ok) {
     throw new Error("Failed to update conversation");
@@ -686,6 +717,57 @@ export async function getConnectors(): Promise<ConnectorsResponse> {
   return response.json();
 }
 
+export async function getUsers(): Promise<UsersResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/users`, withAdminHeaders({
+    cache: "no-store",
+  }));
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch users");
+  }
+
+  return response.json();
+}
+
+export async function createUser(
+  payload: CreateUserInput
+): Promise<LocalUserSummary> {
+  const response = await fetch(`${API_BASE_URL}/auth/users`, withAdminHeaders({
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  }));
+
+  if (!response.ok) {
+    throw new Error("Failed to create user");
+  }
+
+  const data = (await response.json()) as UserResponse;
+  return data.user;
+}
+
+export async function updateUser(
+  userId: string,
+  payload: UpdateUserInput
+): Promise<LocalUserSummary> {
+  const response = await fetch(`${API_BASE_URL}/auth/users/${userId}`, withAdminHeaders({
+    method: "PUT",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  }));
+
+  if (!response.ok) {
+    throw new Error("Failed to update user");
+  }
+
+  const data = (await response.json()) as UserResponse;
+  return data.user;
+}
+
 export async function createConnector(
   payload: ConnectorCreateInput
 ): Promise<ConnectorManifest> {
@@ -698,7 +780,14 @@ export async function createConnector(
   }));
 
   if (!response.ok) {
-    throw new Error("Failed to create connector");
+    let detail = "Failed to create connector";
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      detail = payload.detail || detail;
+    } catch {
+      // Keep fallback message if the backend did not return JSON.
+    }
+    throw new Error(detail);
   }
 
   const data = (await response.json()) as ConnectorResponse;
@@ -736,7 +825,14 @@ export async function updateConnector(
   }));
 
   if (!response.ok) {
-    throw new Error("Failed to update connector");
+    let detail = "Failed to update connector";
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      detail = payload.detail || detail;
+    } catch {
+      // Keep fallback message if the backend did not return JSON.
+    }
+    throw new Error(detail);
   }
 
   const data = (await response.json()) as ConnectorResponse;
@@ -867,12 +963,23 @@ export async function importBackup(
   return response.json();
 }
 
-export async function getLogs(
-  eventLimit = 50,
-  lineLimit = 120
-): Promise<LogsResponse> {
+export async function getLogs(options?: {
+  eventLimit?: number;
+  lineLimit?: number;
+  auditOnly?: boolean;
+}): Promise<LogsResponse> {
+  const eventLimit = options?.eventLimit ?? 50;
+  const lineLimit = options?.lineLimit ?? 120;
+  const auditOnly = options?.auditOnly ?? false;
+  const logsUrl = new URL(`${API_BASE_URL}/logs`);
+  logsUrl.searchParams.set("event_limit", String(eventLimit));
+  logsUrl.searchParams.set("line_limit", String(lineLimit));
+  if (auditOnly) {
+    logsUrl.searchParams.set("audit_only", "true");
+  }
+
   const response = await fetch(
-    `${API_BASE_URL}/logs?event_limit=${eventLimit}&line_limit=${lineLimit}`,
+    logsUrl.toString(),
     withAdminHeaders({
       cache: "no-store",
     })
@@ -889,10 +996,10 @@ export async function uploadDocument(file: File): Promise<DocumentItem> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const response = await fetch(`${API_BASE_URL}/documents/upload`, {
+  const response = await fetch(`${API_BASE_URL}/documents/upload`, withAdminHeaders({
     method: "POST",
     body: formData,
-  });
+  }));
 
   if (!response.ok) {
     let detail = "";
@@ -939,9 +1046,9 @@ export async function processDocument(documentId: string): Promise<DocumentItem>
 }
 
 export async function retryIncompleteDocuments(): Promise<DocumentBatchProcessResponse> {
-  const response = await fetch(`${API_BASE_URL}/documents/retry-indexing`, {
+  const response = await fetch(`${API_BASE_URL}/documents/retry-indexing`, withAdminHeaders({
     method: "POST",
-  });
+  }));
 
   if (!response.ok) {
     throw new Error("Failed to retry incomplete documents");
@@ -951,9 +1058,9 @@ export async function retryIncompleteDocuments(): Promise<DocumentBatchProcessRe
 }
 
 export async function reprocessAllDocuments(): Promise<DocumentBatchProcessResponse> {
-  const response = await fetch(`${API_BASE_URL}/documents/reprocess-all`, {
+  const response = await fetch(`${API_BASE_URL}/documents/reprocess-all`, withAdminHeaders({
     method: "POST",
-  });
+  }));
 
   if (!response.ok) {
     throw new Error("Failed to reprocess all documents");
@@ -963,9 +1070,9 @@ export async function reprocessAllDocuments(): Promise<DocumentBatchProcessRespo
 }
 
 export async function recoverIncompleteDocuments(): Promise<DocumentBatchProcessResponse> {
-  const response = await fetch(`${API_BASE_URL}/documents/recover`, {
+  const response = await fetch(`${API_BASE_URL}/documents/recover`, withAdminHeaders({
     method: "POST",
-  });
+  }));
 
   if (!response.ok) {
     throw new Error("Failed to recover incomplete documents");
@@ -1000,7 +1107,7 @@ export async function getDocumentPreview(
 
 export async function updateDocumentSecurity(
   documentId: string,
-  visibility: "standard" | "hidden"
+  payload: DocumentSecurityUpdateInput
 ): Promise<DocumentItem> {
   const response = await fetch(
     `${API_BASE_URL}/documents/${documentId}/security`,
@@ -1009,14 +1116,24 @@ export async function updateDocumentSecurity(
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ visibility }),
+      body: JSON.stringify({
+        visibility: payload.visibility,
+        access_usernames: payload.accessUsernames ?? [],
+      }),
     })
   );
 
   if (!response.ok) {
-    throw new Error("Failed to update document visibility");
+    let detail = "";
+    try {
+      const errorPayload = (await response.json()) as { detail?: string };
+      detail = errorPayload.detail || "";
+    } catch {
+      // Keep generic fallback below.
+    }
+    throw new Error(detail || "Failed to update document visibility");
   }
 
-  const payload = (await response.json()) as DocumentSecurityResponse;
-  return payload.document;
+  const responsePayload = (await response.json()) as DocumentSecurityResponse;
+  return responsePayload.document;
 }

@@ -5,8 +5,10 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { siteConfig } from "../../config/site";
 import {
+  AuthStatusResponse,
   DocumentItem,
   DocumentPreview,
+  getAuthStatus,
   getDocumentPreview,
   getDocuments,
   getModels,
@@ -21,6 +23,8 @@ export default function ChatPage() {
   const searchParams = useSearchParams();
   const [model, setModel] = useState("");
   const [input, setInput] = useState("");
+  const [authStatus, setAuthStatus] = useState<AuthStatusResponse | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [models, setModels] = useState<ModelItem[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [modelsError, setModelsError] = useState("");
@@ -56,6 +60,47 @@ export default function ChatPage() {
   } = useChat(model, requestedConversationId, selectedDocumentIds);
 
   useEffect(() => {
+    let isMounted = true;
+
+    async function loadAuthStatus() {
+      try {
+        const nextAuthStatus = await getAuthStatus();
+        if (isMounted) {
+          setAuthStatus(nextAuthStatus);
+        }
+      } catch {
+        if (isMounted) {
+          setAuthStatus(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsAuthLoading(false);
+        }
+      }
+    }
+
+    void loadAuthStatus();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (isAuthLoading) {
+      return;
+    }
+
+    if (authStatus?.auth_enabled && !authStatus?.authenticated) {
+      setIsLoadingDocuments(false);
+      setIsLoadingModels(false);
+      setDocuments([]);
+      setModels([]);
+      setDocumentsError("");
+      setModelsError("");
+      return;
+    }
+
     async function loadDependencies() {
       setIsLoadingModels(true);
       setModelsError("");
@@ -90,7 +135,7 @@ export default function ChatPage() {
     }
 
     void loadDependencies();
-  }, []);
+  }, [authStatus?.auth_enabled, authStatus?.authenticated, isAuthLoading]);
 
   useEffect(() => {
     setSelectedDocumentIds((current) =>
@@ -279,6 +324,41 @@ export default function ChatPage() {
     setPreviewError("");
     setIsPreviewLoading(false);
     setPreviewHighlightExcerpt("");
+  }
+
+  if (isAuthLoading) {
+    return (
+      <AppShell contentClassName="p-4 md:p-6 xl:p-8" hideSidebarFooter>
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-10 text-sm text-slate-600 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8">
+          Loading chat...
+        </section>
+      </AppShell>
+    );
+  }
+
+  if (authStatus?.auth_enabled && !authStatus.authenticated) {
+    return (
+      <AppShell contentClassName="p-4 md:p-6 xl:p-8" hideSidebarFooter>
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8 md:py-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+            {siteConfig.chat.title}
+          </p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+            Sign in to open chat
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+            This workspace now protects saved conversations and document-scoped chat behind a signed-in account.
+          </p>
+          <button
+            type="button"
+            onClick={() => router.push("/login?next=/chat")}
+            className="mt-5 inline-flex rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+          >
+            Open Login
+          </button>
+        </section>
+      </AppShell>
+    );
   }
 
   return (

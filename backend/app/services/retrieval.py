@@ -28,6 +28,7 @@ class RetrievalService:
         limit: int = 4,
         allowed_document_ids: list[str] | None = None,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> RetrievalResult:
         candidate_limit = max(limit * 3, 8)
         query_terms = self.document_service.extract_query_terms(query)
@@ -35,7 +36,10 @@ class RetrievalService:
         requested_document_type = self.document_service.extract_requested_document_type(query)
         requested_document_year = self.document_service.extract_requested_document_year(query)
         visible_document_ids = set(
-            self.document_service.list_visible_document_ids(is_admin=is_admin)
+            self.document_service.list_visible_document_ids(
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
         )
         requested_document_ids = (
             [
@@ -50,11 +54,13 @@ class RetrievalService:
             query,
             allowed_document_ids=requested_document_ids,
             is_admin=is_admin,
+            viewer_username=viewer_username,
         )
         metadata_matched_documents = self.document_service.find_documents_by_metadata(
             query,
             allowed_document_ids=requested_document_ids,
             is_admin=is_admin,
+            viewer_username=viewer_username,
         )
         metadata_matched_document_ids = [document.id for document in metadata_matched_documents]
         effective_document_ids = requested_document_ids
@@ -112,6 +118,7 @@ class RetrievalService:
             limit=candidate_limit,
             allowed_document_ids=effective_document_ids,
             is_admin=is_admin,
+            viewer_username=viewer_username,
         )
 
         hybrid_sources = self._merge_sources(
@@ -144,6 +151,7 @@ class RetrievalService:
                 sources=selected_sources,
                 limit=limit,
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
             selected_sources = self._rerank_hydrated_sources(
                 query=query,
@@ -214,6 +222,7 @@ class RetrievalService:
         allowed_document_ids: list[str] | None = None,
         history: list | None = None,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> str | None:
         if not (
             self.document_service.is_document_reference_query(query)
@@ -225,6 +234,7 @@ class RetrievalService:
         if self.document_service.is_document_inventory_query(query):
             document_names = self.document_service.list_uploaded_document_names(
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
             if not document_names:
                 return "You have not uploaded any documents yet."
@@ -251,6 +261,7 @@ class RetrievalService:
                 query=query,
                 history=history,
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
 
         if self.document_service.is_document_entity_inventory_query(query):
@@ -258,6 +269,7 @@ class RetrievalService:
                 query,
                 allowed_document_ids=allowed_document_ids,
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
 
         if (
@@ -268,6 +280,7 @@ class RetrievalService:
                 query,
                 allowed_document_ids=allowed_document_ids,
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
 
         if self.document_service.is_document_type_query(query) and sources:

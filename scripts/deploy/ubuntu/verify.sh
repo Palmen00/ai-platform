@@ -45,6 +45,8 @@ echo "OK: Backend container can access Tesseract"
 run_deploy_compose exec -T backend docker version >/dev/null
 echo "OK: Backend container can access Docker for OCRmyPDF"
 
+install_report_path="$(write_install_report)"
+
 cat <<EOF
 Verification completed successfully.
 
@@ -52,6 +54,7 @@ Frontend: http://127.0.0.1:${FRONTEND_PORT:-3000}
 Backend health: http://127.0.0.1:${BACKEND_PORT:-8000}/health
 Backend status: http://127.0.0.1:${BACKEND_PORT:-8000}/status
 Qdrant: http://127.0.0.1:${QDRANT_PORT:-6333}
+Install report: ${install_report_path}
 
 Recommended support commands:
 - ./scripts/deploy/ubuntu/status.sh

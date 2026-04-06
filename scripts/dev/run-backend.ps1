@@ -7,6 +7,11 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$commonScript = Join-Path $PSScriptRoot "..\lib\common.ps1"
+. $commonScript
+
+Ensure-QdrantRunning
+
 $repoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $backendDir = Join-Path $repoRoot "backend"
 

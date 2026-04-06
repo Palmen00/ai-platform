@@ -28,10 +28,14 @@ type DocumentListProps = {
   onDelete: (documentId: string) => Promise<void>;
   onReprocess: (documentId: string) => Promise<void>;
   onPreview: (documentId: string) => Promise<void>;
+  canManageDocuments?: boolean;
   canManageVisibility?: boolean;
   onSetVisibility?: (
     documentId: string,
-    visibility: "standard" | "hidden"
+    payload: {
+      visibility: "standard" | "hidden" | "restricted";
+      accessUsernames?: string[];
+    }
   ) => Promise<void>;
 };
 
@@ -224,6 +228,7 @@ export function DocumentList({
   onDelete,
   onReprocess,
   onPreview,
+  canManageDocuments = true,
   canManageVisibility = false,
   onSetVisibility,
 }: DocumentListProps) {
@@ -472,6 +477,18 @@ export function DocumentList({
                       </span>
                     </div>
                   )}
+                  {document.visibility === "restricted" && (
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-sky-800">
+                        {siteConfig.knowledge.restrictedVisibilityLabel}
+                      </span>
+                      <span className="text-[11px] text-slate-500">
+                        {(document.access_usernames ?? []).length > 0
+                          ? `${(document.access_usernames ?? []).length} user${(document.access_usernames ?? []).length === 1 ? "" : "s"}`
+                          : "No users assigned"}
+                      </span>
+                    </div>
+                  )}
                 </td>
                 <td className="px-3 py-3 text-sm">
                   <div className="font-medium text-slate-800">
@@ -591,37 +608,116 @@ export function DocumentList({
                 </td>
                 <td className="px-3 py-3">
                   <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => void onReprocess(document.id)}
-                      disabled={
-                        processingDocumentId === document.id || isReprocessingAll
-                      }
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {processingDocumentId === document.id || isReprocessingAll
-                        ? siteConfig.knowledge.processingButton
-                        : siteConfig.knowledge.reprocessButton}
-                    </button>
-                    <button
-                      onClick={() => void onDelete(document.id)}
-                      className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                    >
-                      {siteConfig.knowledge.deleteButton}
-                    </button>
+                    {canManageDocuments && (
+                      <>
+                        <button
+                          onClick={() => void onReprocess(document.id)}
+                          disabled={
+                            processingDocumentId === document.id || isReprocessingAll
+                          }
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {processingDocumentId === document.id || isReprocessingAll
+                            ? siteConfig.knowledge.processingButton
+                            : siteConfig.knowledge.reprocessButton}
+                        </button>
+                        <button
+                          onClick={() => void onDelete(document.id)}
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                        >
+                          {siteConfig.knowledge.deleteButton}
+                        </button>
+                      </>
+                    )}
                     {canManageVisibility && onSetVisibility && (
-                      <button
-                        onClick={() =>
-                          void onSetVisibility(
-                            document.id,
-                            document.visibility === "hidden" ? "standard" : "hidden"
-                          )
-                        }
-                        className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                      >
-                        {document.visibility === "hidden"
-                          ? siteConfig.knowledge.unhideButton
-                          : siteConfig.knowledge.hideButton}
-                      </button>
+                      <>
+                        <button
+                          onClick={() =>
+                            void onSetVisibility(document.id, {
+                              visibility:
+                                document.visibility === "hidden"
+                                  ? "standard"
+                                  : "hidden",
+                            })
+                          }
+                          className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                        >
+                          {document.visibility === "hidden"
+                            ? siteConfig.knowledge.unhideButton
+                            : siteConfig.knowledge.hideButton}
+                        </button>
+                        {document.visibility === "restricted" ? (
+                          <>
+                            <button
+                              onClick={() =>
+                                void onSetVisibility(document.id, {
+                                  visibility: "standard",
+                                })
+                              }
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                            >
+                              {siteConfig.knowledge.standardAccessButton}
+                            </button>
+                            <button
+                              onClick={() => {
+                                const nextUsers = window.prompt(
+                                  siteConfig.knowledge.restrictPrompt,
+                                  (document.access_usernames ?? []).join(", ")
+                                );
+                                if (nextUsers === null) {
+                                  return;
+                                }
+                                const parsedUsers = nextUsers
+                                  .split(",")
+                                  .map((value) => value.trim())
+                                  .filter(Boolean);
+                                if (parsedUsers.length === 0) {
+                                  window.alert(
+                                    siteConfig.knowledge.restrictPromptEmpty
+                                  );
+                                  return;
+                                }
+                                void onSetVisibility(document.id, {
+                                  visibility: "restricted",
+                                  accessUsernames: parsedUsers,
+                                });
+                              }}
+                              className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                            >
+                              {siteConfig.knowledge.editRestrictedAccessButton}
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            onClick={() => {
+                              const nextUsers = window.prompt(
+                                siteConfig.knowledge.restrictPrompt,
+                                ""
+                              );
+                              if (nextUsers === null) {
+                                return;
+                              }
+                              const parsedUsers = nextUsers
+                                .split(",")
+                                .map((value) => value.trim())
+                                .filter(Boolean);
+                              if (parsedUsers.length === 0) {
+                                window.alert(
+                                  siteConfig.knowledge.restrictPromptEmpty
+                                );
+                                return;
+                              }
+                              void onSetVisibility(document.id, {
+                                visibility: "restricted",
+                                accessUsernames: parsedUsers,
+                              });
+                            }}
+                            className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+                          >
+                            {siteConfig.knowledge.restrictButton}
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </td>

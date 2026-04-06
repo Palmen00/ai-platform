@@ -6,6 +6,7 @@ import {
   DocumentFacetOption,
   DocumentItem,
   DocumentPreview,
+  DocumentSecurityUpdateInput,
   getDocumentPreview,
   getDocuments,
   processDocument,
@@ -159,26 +160,23 @@ export function useDocuments() {
 
   async function setDocumentVisibility(
     documentId: string,
-    visibility: "standard" | "hidden"
+    payload: DocumentSecurityUpdateInput
   ) {
     setError("");
     setStatusMessage("");
 
     try {
-      const updatedDocument = await updateDocumentSecurity(documentId, visibility);
+      const updatedDocument = await updateDocumentSecurity(documentId, payload);
       setDocuments((current) => {
-        if (
-          visibility === "hidden" &&
-          !current.some((document) => document.id === documentId)
-        ) {
-          return current;
-        }
-
         return current
           .map((document) =>
             document.id === documentId ? updatedDocument : document
           )
-          .filter((document) => document.id !== documentId || visibility !== "hidden" || updatedDocument.visibility === "hidden");
+          .filter(
+            (document) =>
+              document.id !== documentId ||
+              updatedDocument.visibility !== "hidden"
+          );
       });
       if (preview?.document.id === documentId) {
         setPreview((current) =>
@@ -191,13 +189,19 @@ export function useDocuments() {
         );
       }
       setStatusMessage(
-        visibility === "hidden"
+        payload.visibility === "hidden"
           ? siteConfig.knowledge.messages.hideSuccess
+          : payload.visibility === "restricted"
+            ? siteConfig.knowledge.messages.restrictSuccess
           : siteConfig.knowledge.messages.unhideSuccess
       );
       await refreshDocumentsRef.current({ background: true });
-    } catch {
-      setError(siteConfig.knowledge.messages.visibilityError);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : siteConfig.knowledge.messages.visibilityError;
+      setError(message);
     }
   }
 

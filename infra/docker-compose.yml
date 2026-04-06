@@ -19,3 +19,4 @@ services:
       - "6333:6333"
     volumes:
       - ../data/qdrant:/qdrant/storage
+    restart: unless-stopped

@@ -46,6 +46,9 @@
 - Avoid scattering color values, font declarations, and literal UI strings across the codebase
 - Keep visual primitives such as colors, spacing, radius, shadows, and typography tokens centralized
 - Keep reusable labels, product copy, and navigation text out of component internals when they are likely to change
+- Follow `Docs/ui-style-guide.md` as the default visual direction for admin and product UI
+- Prefer compact, text-first navigation and avoid oversized buttons, cards, and blocks unless the content truly needs them
+- Keep layouts minimal and information-dense so more useful content fits without unnecessary scrolling
 
 ## Script Design Rules
 

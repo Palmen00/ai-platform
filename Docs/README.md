@@ -16,8 +16,9 @@ This folder now uses Markdown as the primary documentation format.
 10. [Linux Installer V1](./linux-installer-v1.md)
 11. [Linux Installer V1 Checklist](./linux-installer-v1-checklist.md)
 12. [Development Rules](./development-rules.md)
-13. [Roadmap](./roadmap.md)
-14. [Latest Session Handoff](./session-handoff-2026-04-05.md)
+13. [UI Style Guide](./ui-style-guide.md)
+14. [Roadmap](./roadmap.md)
+15. [Latest Session Handoff](./session-handoff-2026-04-05.md)
 
 ## Notes
 

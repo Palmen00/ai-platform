@@ -340,7 +340,7 @@ Recommended order:
 3. hardened/admin-only protection for remaining sensitive document mutations
 4. upload allowlist plus size/rate limits
 5. safe mode runtime profile
-6. safer connector secret/token storage
+6. stronger connector secret/token storage beyond the current app-managed encrypted-at-rest baseline
 7. encrypted backup/export path
 8. tenant/workspace isolation
 9. encrypted artifact storage for sensitive deployments

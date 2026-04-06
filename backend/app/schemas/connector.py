@@ -5,10 +5,13 @@ class ConnectorImportRequest(BaseModel):
     file_path: str
     original_name: str | None = None
     content_type: str = "application/octet-stream"
+    connector_id: str | None = None
     provider: str | None = None
     source_uri: str | None = None
     container: str | None = None
     source_last_modified_at: str | None = None
+    visibility: str = "standard"
+    access_usernames: list[str] = Field(default_factory=list)
 
 
 class ConnectorImportResult(BaseModel):
@@ -29,6 +32,8 @@ class ConnectorManifest(BaseModel):
     auth_mode: str = "manual"
     root_path: str | None = None
     container: str | None = None
+    document_visibility: str = "standard"
+    access_usernames: list[str] = Field(default_factory=list)
     include_patterns: list[str] = Field(default_factory=list)
     exclude_patterns: list[str] = Field(default_factory=list)
     export_formats: list[str] = Field(default_factory=list)
@@ -46,6 +51,8 @@ class ConnectorCreateRequest(BaseModel):
     auth_mode: str = "manual"
     root_path: str | None = None
     container: str | None = None
+    document_visibility: str = "standard"
+    access_usernames: list[str] = Field(default_factory=list)
     include_patterns: list[str] = Field(default_factory=list)
     exclude_patterns: list[str] = Field(default_factory=list)
     export_formats: list[str] = Field(default_factory=list)
@@ -59,6 +66,8 @@ class ConnectorUpdateRequest(BaseModel):
     auth_mode: str | None = None
     root_path: str | None = None
     container: str | None = None
+    document_visibility: str | None = None
+    access_usernames: list[str] | None = None
     include_patterns: list[str] | None = None
     exclude_patterns: list[str] | None = None
     export_formats: list[str] | None = None

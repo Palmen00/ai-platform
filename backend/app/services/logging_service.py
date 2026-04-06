@@ -43,13 +43,22 @@ def log_event(
     event_type: str,
     message: str,
     status: str = "info",
+    *,
+    category: str = "app",
+    actor_user_id: str | None = None,
+    actor_username: str | None = None,
+    actor_role: str | None = None,
     **details: object,
 ) -> None:
     event = LogEvent(
         timestamp=datetime.now(UTC).isoformat(),
         event_type=event_type,
+        category=category,
         status=status,
         message=message,
+        actor_user_id=actor_user_id,
+        actor_username=actor_username,
+        actor_role=actor_role,
         details=details,
     )
 
@@ -98,3 +107,10 @@ def read_recent_events(limit: int = 100) -> list[LogEvent]:
             continue
 
     return events
+
+
+def read_recent_audit_events(limit: int = 100) -> list[LogEvent]:
+    return [
+        event for event in read_recent_events(limit=limit * 4)
+        if event.category == "audit"
+    ][:limit]

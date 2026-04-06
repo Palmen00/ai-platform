@@ -164,7 +164,7 @@ Status: started
   - upload constraints
   - safe mode / hardened mode
   - encrypted backup/export path
-  - safer connector secret/token storage
+  - move connector secrets from app-managed encryption toward stronger host or secret-manager integration
   - clearer audit boundaries for admin actions
 
 ### Later

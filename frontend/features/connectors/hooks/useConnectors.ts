@@ -19,6 +19,14 @@ import { siteConfig } from "../../../config/site";
 
 const CONNECTORS_CACHE_KEY = "local-ai-connectors-cache-v1";
 
+function normalizeConnector(connector: ConnectorManifest): ConnectorManifest {
+  return {
+    ...connector,
+    document_visibility: connector.document_visibility ?? "standard",
+    access_usernames: connector.access_usernames ?? [],
+  };
+}
+
 function readCachedConnectors(): ConnectorManifest[] {
   if (typeof window === "undefined") {
     return [];
@@ -31,7 +39,9 @@ function readCachedConnectors(): ConnectorManifest[] {
     }
 
     const payload = JSON.parse(rawValue);
-    return Array.isArray(payload) ? (payload as ConnectorManifest[]) : [];
+    return Array.isArray(payload)
+      ? (payload as ConnectorManifest[]).map(normalizeConnector)
+      : [];
   } catch {
     return [];
   }
@@ -102,8 +112,9 @@ export function useConnectors(enabled = true) {
 
     try {
       const payload = await getConnectors();
-      setConnectors(payload.connectors);
-      writeCachedConnectors(payload.connectors);
+      const nextConnectors = payload.connectors.map(normalizeConnector);
+      setConnectors(nextConnectors);
+      writeCachedConnectors(nextConnectors);
     } catch {
       setError(siteConfig.connectors.messages.loadError);
       if (retryAttempt < 2 && typeof window !== "undefined") {
@@ -127,11 +138,15 @@ export function useConnectors(enabled = true) {
 
     try {
       const connector = await createConnector(payload);
-      setConnectors((current) => [connector, ...current]);
+      setConnectors((current) => [normalizeConnector(connector), ...current]);
       setStatusMessage(siteConfig.connectors.messages.createSuccess);
       return connector;
-    } catch {
-      setError(siteConfig.connectors.messages.createError);
+    } catch (error) {
+      setError(
+        error instanceof Error && error.message
+          ? error.message
+          : siteConfig.connectors.messages.createError
+      );
       return null;
     } finally {
       setIsCreating(false);
@@ -150,15 +165,19 @@ export function useConnectors(enabled = true) {
       const connector = await updateConnector(connectorId, payload);
       setConnectors((current) => {
         const next = current.map((item) =>
-          item.id === connector.id ? connector : item
+          item.id === connector.id ? normalizeConnector(connector) : item
         );
         writeCachedConnectors(next);
         return next;
       });
       setStatusMessage(siteConfig.connectors.messages.updateSuccess);
       return connector;
-    } catch {
-      setError(siteConfig.connectors.messages.updateError);
+    } catch (error) {
+      setError(
+        error instanceof Error && error.message
+          ? error.message
+          : siteConfig.connectors.messages.updateError
+      );
       return null;
     } finally {
       setSavingConnectorId("");

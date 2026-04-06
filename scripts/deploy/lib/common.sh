@@ -18,10 +18,19 @@ load_deploy_env() {
     return
   fi
 
-  set -a
-  # shellcheck disable=SC1090
-  . "${deploy_env_file}"
-  set +a
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line%$'\r'}"
+    if [[ -z "${line}" || "${line}" =~ ^[[:space:]]*# ]]; then
+      continue
+    fi
+    if [[ "${line}" != *=* ]]; then
+      continue
+    fi
+
+    local key="${line%%=*}"
+    local value="${line#*=}"
+    export "${key}=${value}"
+  done < "${deploy_env_file}"
 }
 
 ensure_directory() {
@@ -43,6 +52,7 @@ ensure_project_directories() {
   ensure_directory "${data_root_host}/app/documents/chunks"
   ensure_directory "${data_root_host}/app/documents/extracted"
   ensure_directory "${data_root_host}/app/connectors"
+  ensure_directory "${data_root_host}/app/install"
   ensure_directory "${data_root_host}/app/logs"
   ensure_directory "${data_root_host}/app/ocr/tessdata"
   ensure_directory "${data_root_host}/uploads"
@@ -99,9 +109,113 @@ print(secrets.token_hex(32))
 PY
 }
 
+generate_app_secrets_key() {
+  python3 - <<'PY'
+import base64
+import secrets
+print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("utf-8"))
+PY
+}
+
+hash_admin_password() {
+  local password="$1"
+  ADMIN_PASSWORD_INPUT="${password}" python3 - <<'PY'
+import base64
+import hashlib
+import os
+import secrets
+
+password = os.environ["ADMIN_PASSWORD_INPUT"]
+salt = secrets.token_bytes(16)
+derived = hashlib.scrypt(
+    password.encode("utf-8"),
+    salt=salt,
+    n=2**14,
+    r=8,
+    p=1,
+    dklen=32,
+)
+encoded_salt = base64.urlsafe_b64encode(salt).decode("utf-8").rstrip("=")
+encoded_hash = base64.urlsafe_b64encode(derived).decode("utf-8").rstrip("=")
+print(f"scrypt${2**14}$8$1${encoded_salt}${encoded_hash}")
+PY
+}
+
 run_deploy_compose() {
   (
     cd "${repo_root}/infra"
     docker compose --env-file "${deploy_env_file}" -f "${deploy_compose_file}" "$@"
   )
+}
+
+timestamp_utc() {
+  date -u +"%Y%m%dT%H%M%SZ"
+}
+
+write_install_report() {
+  load_deploy_env
+  ensure_project_directories
+
+  local report_timestamp
+  report_timestamp="$(timestamp_utc)"
+
+  local install_dir="${DATA_ROOT_HOST:-${repo_root}/data}/app/install"
+  local report_path="${install_dir}/install-report-${report_timestamp}.md"
+  local latest_path="${install_dir}/install-report-latest.md"
+
+  local frontend_host="${HOSTNAME_OR_DOMAIN:-127.0.0.1}"
+  local backend_host="${HOSTNAME_OR_DOMAIN:-127.0.0.1}"
+  local frontend_url="http://${frontend_host}:${FRONTEND_PORT:-3000}"
+  local backend_health_url="http://${backend_host}:${BACKEND_PORT:-8000}/health"
+  local backend_status_url="http://${backend_host}:${BACKEND_PORT:-8000}/status"
+  local qdrant_url="http://127.0.0.1:${QDRANT_PORT:-6333}"
+
+  cat >"${report_path}" <<EOF
+# Local AI OS Install Report
+
+- Generated at: ${report_timestamp}
+- Env file: ${deploy_env_file}
+
+## Deployment
+
+- Profile: ${INSTALL_PROFILE:-unknown}
+- Ollama mode: ${INSTALL_OLLAMA_MODE:-unknown}
+- Ollama URL: ${OLLAMA_BASE_URL:-not set}
+- Access mode: ${INSTALL_AUTH_MODE:-unknown}
+- Bootstrap admin: ${ADMIN_USERNAME:-not set}
+- Safe mode: ${SAFE_MODE:-false}
+- OCR enabled: ${OCR_ENABLED:-false}
+- Connector features: ${INSTALL_CONNECTOR_FEATURES_ENABLED:-${CONNECTOR_FEATURES_ENABLED:-false}}
+
+## Network
+
+- Frontend URL: ${frontend_url}
+- Backend health: ${backend_health_url}
+- Backend status: ${backend_status_url}
+- Qdrant: ${qdrant_url}
+- Public API URL: ${NEXT_PUBLIC_API_BASE_URL:-not set}
+
+## Storage
+
+- Data root: ${DATA_ROOT_HOST:-not set}
+- Qdrant storage: ${QDRANT_STORAGE_HOST:-not set}
+
+## Support Commands
+
+\`\`\`bash
+./scripts/deploy/ubuntu/status.sh
+./scripts/deploy/ubuntu/logs.sh backend
+./scripts/deploy/ubuntu/stop.sh
+./scripts/deploy/ubuntu/update.sh
+\`\`\`
+
+## Notes
+
+- Sign in with the bootstrap admin configured during install.
+- If auth is disabled, the app starts in local open mode.
+- Safe mode blocks higher-risk admin actions when enabled.
+EOF
+
+  cp "${report_path}" "${latest_path}"
+  printf '%s' "${latest_path}"
 }

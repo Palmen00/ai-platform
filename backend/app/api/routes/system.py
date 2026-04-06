@@ -18,7 +18,11 @@ from app.schemas.settings import (
 )
 from app.services.conversations import ConversationService
 from app.services.documents import DocumentService
-from app.services.auth import ensure_safe_mode_allows, require_admin_from_either_header
+from app.services.auth import (
+    ensure_safe_mode_allows,
+    get_actor_log_fields,
+    require_admin_from_either_header,
+)
 from app.services.logging_service import log_event
 from app.services.maintenance import MaintenanceService
 from app.services.ollama import OllamaService
@@ -224,7 +228,7 @@ def get_runtime_settings(
 @router.put("/settings", response_model=RuntimeSettingsResponse)
 def update_runtime_settings(
     payload: RuntimeSettings,
-    _: None = Depends(require_admin_from_either_header),
+    session=Depends(require_admin_from_either_header),
 ) -> RuntimeSettingsResponse:
     ensure_safe_mode_allows("Runtime setting changes")
     if payload.document_chunk_overlap >= payload.document_chunk_size:
@@ -234,7 +238,13 @@ def update_runtime_settings(
         )
 
     updated_settings = settings.update_runtime_settings(payload.model_dump())
-    log_event("settings.update", "Runtime settings updated.", **updated_settings)
+    log_event(
+        "settings.update",
+        "Runtime settings updated.",
+        category="audit",
+        **get_actor_log_fields(session),
+        **updated_settings,
+    )
     return RuntimeSettingsResponse(
         settings=RuntimeSettings.model_validate(updated_settings)
     )
@@ -243,7 +253,7 @@ def update_runtime_settings(
 @router.post("/cleanup", response_model=CleanupResponse)
 def cleanup_storage(
     payload: CleanupRequest,
-    _: None = Depends(require_admin_from_either_header),
+    session=Depends(require_admin_from_either_header),
 ) -> CleanupResponse:
     ensure_safe_mode_allows("Storage cleanup")
     if not payload.targets:
@@ -258,6 +268,8 @@ def cleanup_storage(
             "system.cleanup",
             "Cleanup failed.",
             status="error",
+            category="audit",
+            **get_actor_log_fields(session),
             targets=payload.targets,
             error=str(exc),
         )
@@ -267,6 +279,8 @@ def cleanup_storage(
     log_event(
         "system.cleanup",
         "Cleanup completed.",
+        category="audit",
+        **get_actor_log_fields(session),
         targets=[item.key for item in cleaned_targets],
         removed_bytes=removed_bytes,
     )
@@ -279,7 +293,7 @@ def cleanup_storage(
 
 @router.get("/export", response_model=BackupExportPayload)
 def export_backup(
-    _: None = Depends(require_admin_from_either_header),
+    session=Depends(require_admin_from_either_header),
 ) -> BackupExportPayload:
     ensure_safe_mode_allows("Backup export")
     documents = [document.model_dump() for document in document_service.list_documents()]
@@ -290,6 +304,8 @@ def export_backup(
     log_event(
         "system.export",
         "Backup export generated.",
+        category="audit",
+        **get_actor_log_fields(session),
         document_count=len(documents),
         conversation_count=len(conversations),
     )
@@ -306,7 +322,7 @@ def export_backup(
 @router.post("/import", response_model=BackupImportResponse)
 def import_backup(
     payload: BackupExportPayload,
-    _: None = Depends(require_admin_from_either_header),
+    session=Depends(require_admin_from_either_header),
 ) -> BackupImportResponse:
     ensure_safe_mode_allows("Backup import")
     imported_runtime_settings = False
@@ -324,6 +340,8 @@ def import_backup(
     log_event(
         "system.import",
         "Backup import completed.",
+        category="audit",
+        **get_actor_log_fields(session),
         imported_conversations=imported_conversations,
         imported_runtime_settings=imported_runtime_settings,
         skipped_documents=skipped_documents,

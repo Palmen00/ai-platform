@@ -21,6 +21,7 @@ from app.schemas.chat import ChatHistoryMessage, ChatSource
 from app.services.document_processing import DocumentProcessingService
 from app.services.embeddings import EmbeddingService
 from app.services.gliner_service import GLiNEREntityService
+from app.services.users import UserService
 from app.services.vector_store import VectorStoreService
 
 
@@ -66,6 +67,7 @@ class DocumentService:
         self.processing_service = DocumentProcessingService()
         self.embedding_service = EmbeddingService()
         self.gliner_service = GLiNEREntityService()
+        self.user_service = UserService()
         self.vector_store = VectorStoreService()
         self._query_entity_cache: dict[str, list[str]] = {}
 
@@ -100,6 +102,7 @@ class DocumentService:
         source_filter: str = "all",
         sort_order: str = "newest",
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> tuple[
         list[DocumentRecord],
         int,
@@ -125,7 +128,13 @@ class DocumentService:
         visible_documents = self._filter_documents_for_viewer(
             documents,
             is_admin=is_admin,
+            viewer_username=viewer_username,
         )
+        if not is_admin:
+            visible_documents = [
+                self._sanitize_document_for_viewer(document)
+                for document in visible_documents
+            ]
 
         base_filtered_documents = [
             document
@@ -214,12 +223,18 @@ class DocumentService:
             available_source_facets,
         )
 
-    def list_uploaded_document_names(self, *, is_admin: bool = False) -> list[str]:
+    def list_uploaded_document_names(
+        self,
+        *,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> list[str]:
         return [
             document.original_name
             for document in self._filter_documents_for_viewer(
                 self.list_documents(),
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
         ]
 
@@ -228,6 +243,7 @@ class DocumentService:
         query: str,
         allowed_document_ids: list[str] | None = None,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> list[str]:
         normalized_query = self._normalize_document_name(query)
         query_terms = set(self.extract_query_terms(query))
@@ -237,6 +253,7 @@ class DocumentService:
         for document in self._filter_documents_for_viewer(
             self.list_documents(),
             is_admin=is_admin,
+            viewer_username=viewer_username,
         ):
             if allowed_document_id_set and document.id not in allowed_document_id_set:
                 continue
@@ -312,10 +329,13 @@ class DocumentService:
         file_path: Path,
         original_name: str | None = None,
         content_type: str = "application/octet-stream",
+        source_connector_id: str | None = None,
         source_provider: str | None = None,
         source_uri: str | None = None,
         source_container: str | None = None,
         source_last_modified_at: str | None = None,
+        visibility: str = "standard",
+        access_usernames: list[str] | None = None,
     ) -> DocumentRecord:
         resolved_name = Path(original_name or file_path.name).name
         with file_path.open("rb") as file_handle:
@@ -324,10 +344,13 @@ class DocumentService:
                 original_name=resolved_name,
                 content_type=content_type,
                 source_origin="connector" if source_provider or source_uri else "import",
+                source_connector_id=source_connector_id,
                 source_provider=source_provider,
                 source_uri=source_uri,
                 source_container=source_container,
                 source_last_modified_at=source_last_modified_at,
+                visibility=visibility,
+                access_usernames=access_usernames,
             )
 
     def upsert_external_document(
@@ -336,10 +359,13 @@ class DocumentService:
         file_path: Path,
         original_name: str | None = None,
         content_type: str | None = None,
+        source_connector_id: str | None = None,
         source_provider: str | None = None,
         source_uri: str | None = None,
         source_container: str | None = None,
         source_last_modified_at: str | None = None,
+        visibility: str = "standard",
+        access_usernames: list[str] | None = None,
     ) -> tuple[DocumentRecord, str]:
         if source_provider and source_uri:
             existing = self.find_document_by_source(
@@ -358,10 +384,13 @@ class DocumentService:
                     source_path=file_path,
                     original_name=original_name or file_path.name,
                     content_type=content_type or self._guess_content_type(file_path),
+                    source_connector_id=source_connector_id,
                     source_provider=source_provider,
                     source_uri=source_uri,
                     source_container=source_container,
                     source_last_modified_at=source_last_modified_at,
+                    visibility=visibility,
+                    access_usernames=access_usernames,
                 )
                 return updated, "updated"
 
@@ -369,10 +398,13 @@ class DocumentService:
             file_path=file_path,
             original_name=original_name,
             content_type=content_type or self._guess_content_type(file_path),
+            source_connector_id=source_connector_id,
             source_provider=source_provider,
             source_uri=source_uri,
             source_container=source_container,
             source_last_modified_at=source_last_modified_at,
+            visibility=visibility,
+            access_usernames=access_usernames,
         )
         return created, "imported"
 
@@ -393,12 +425,19 @@ class DocumentService:
         document_id: str,
         *,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> DocumentRecord | None:
         document = self.get_document(document_id)
         if document is None:
             return None
-        if not self._document_is_visible_to_viewer(document, is_admin=is_admin):
+        if not self._document_is_visible_to_viewer(
+            document,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        ):
             return None
+        if not is_admin:
+            return self._sanitize_document_for_viewer(document)
         return document
 
     def find_document_by_source(
@@ -445,18 +484,72 @@ class DocumentService:
         document_id: str,
         *,
         visibility: str,
+        access_usernames: list[str] | None = None,
     ) -> DocumentRecord:
         normalized_visibility = (visibility or "").strip().lower()
-        if normalized_visibility not in {"standard", "hidden"}:
-            raise ValueError("Visibility must be 'standard' or 'hidden'.")
+        if normalized_visibility not in {"standard", "hidden", "restricted"}:
+            raise ValueError(
+                "Visibility must be 'standard', 'hidden', or 'restricted'."
+            )
 
         document = self.get_document(document_id)
         if document is None:
             raise FileNotFoundError(f"Document {document_id} not found")
 
         document.visibility = normalized_visibility
+        document.access_usernames = self._normalize_document_access_usernames(
+            access_usernames or [],
+            visibility=normalized_visibility,
+        )
         self._write_metadata(document)
         return document
+
+    def apply_connector_permissions(
+        self,
+        *,
+        connector_id: str,
+        visibility: str,
+        access_usernames: list[str] | None = None,
+        source_provider: str | None = None,
+        source_container: str | None = None,
+        updated_source_container: str | None = None,
+    ) -> int:
+        normalized_visibility = self._normalize_document_visibility(visibility)
+        normalized_access = self._normalize_document_access_usernames(
+            access_usernames or [],
+            visibility=normalized_visibility,
+        )
+        updated_count = 0
+
+        for document in self.list_documents():
+            matches_connector = (document.source_connector_id or "") == connector_id
+            matches_legacy_source = (
+                not matches_connector
+                and not document.source_connector_id
+                and source_provider is not None
+                and source_container is not None
+                and (document.source_provider or "") == source_provider
+                and (document.source_container or "") == source_container
+            )
+            if not matches_connector and not matches_legacy_source:
+                continue
+
+            if (
+                document.source_connector_id == connector_id
+                and document.visibility == normalized_visibility
+                and document.access_usernames == normalized_access
+            ):
+                continue
+
+            document.source_connector_id = connector_id
+            if updated_source_container is not None:
+                document.source_container = updated_source_container
+            document.visibility = normalized_visibility
+            document.access_usernames = list(normalized_access)
+            self._write_metadata(document)
+            updated_count += 1
+
+        return updated_count
 
     def get_document_preview(
         self,
@@ -465,8 +558,13 @@ class DocumentService:
         max_chunks: int = 8,
         focus_chunk_index: int | None = None,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> DocumentPreview:
-        document = self.get_document_for_viewer(document_id, is_admin=is_admin)
+        document = self.get_document_for_viewer(
+            document_id,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
         if document is None:
             raise FileNotFoundError(f"Document {document_id} not found")
 
@@ -724,12 +822,18 @@ class DocumentService:
             1 for document in self.list_documents() if self.is_document_retriable(document)
         )
 
-    def list_visible_document_ids(self, *, is_admin: bool = False) -> list[str]:
+    def list_visible_document_ids(
+        self,
+        *,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> list[str]:
         return [
             document.id
             for document in self._filter_documents_for_viewer(
                 self.list_documents(),
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
         ]
 
@@ -745,6 +849,7 @@ class DocumentService:
         limit: int = 4,
         allowed_document_ids: list[str] | None = None,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> list[ChatSource]:
         terms = self.extract_query_terms(query)
         allowed_document_id_set = set(allowed_document_ids or [])
@@ -753,6 +858,7 @@ class DocumentService:
             for document in self._filter_documents_for_viewer(
                 self.list_documents(),
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
             if document.processing_status == "processed"
             and (
@@ -1173,6 +1279,7 @@ class DocumentService:
         query: str,
         allowed_document_ids: list[str] | None = None,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> list[DocumentRecord]:
         requested_type = self.extract_requested_document_type(query)
         requested_year = self.extract_requested_document_year(query)
@@ -1189,6 +1296,7 @@ class DocumentService:
         for document in self._filter_documents_for_viewer(
             self.list_documents(),
             is_admin=is_admin,
+            viewer_username=viewer_username,
         ):
             if allowed_document_id_set and document.id not in allowed_document_id_set:
                 continue
@@ -1216,6 +1324,7 @@ class DocumentService:
         query: str,
         allowed_document_ids: list[str] | None = None,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> str | None:
         requested_type = self.extract_requested_document_type(query)
         requested_year = self.extract_requested_document_year(query)
@@ -1227,6 +1336,7 @@ class DocumentService:
             query,
             allowed_document_ids=allowed_document_ids,
             is_admin=is_admin,
+            viewer_username=viewer_username,
         )
         type_label = self._format_document_type_label(requested_type) if requested_type else "documents"
         year_suffix = f" from {requested_year}" if requested_year else ""
@@ -1271,6 +1381,7 @@ class DocumentService:
         query: str,
         allowed_document_ids: list[str] | None = None,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> str | None:
         requested_type = self.extract_requested_document_type(query)
         requested_year = self.extract_requested_document_year(query)
@@ -1285,6 +1396,7 @@ class DocumentService:
             inventory_query,
             allowed_document_ids=allowed_document_ids,
             is_admin=is_admin,
+            viewer_username=viewer_username,
         )
         if not matching_documents:
             type_label = self._format_document_type_label(requested_type)
@@ -1345,12 +1457,14 @@ class DocumentService:
         history: list[ChatHistoryMessage] | None = None,
         minimum_score: float = 0.22,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> str | None:
         processed_documents = [
             document
             for document in self._filter_documents_for_viewer(
                 self.list_documents(),
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
             if document.processing_status == "processed"
         ]
@@ -1480,6 +1594,7 @@ class DocumentService:
         sources: list[ChatSource],
         limit: int | None = None,
         is_admin: bool = False,
+        viewer_username: str | None = None,
     ) -> list[ChatSource]:
         if not sources:
             return []
@@ -1492,6 +1607,7 @@ class DocumentService:
             document = self.get_document_for_viewer(
                 source.document_id,
                 is_admin=is_admin,
+                viewer_username=viewer_username,
             )
             if document is None:
                 continue
@@ -1804,11 +1920,15 @@ class DocumentService:
         original_name: str,
         content_type: str,
         source_origin: str,
+        source_connector_id: str | None = None,
         source_provider: str | None = None,
         source_uri: str | None = None,
         source_container: str | None = None,
         source_last_modified_at: str | None = None,
+        visibility: str = "standard",
+        access_usernames: list[str] | None = None,
     ) -> DocumentRecord:
+        normalized_visibility = self._normalize_document_visibility(visibility)
         document_id = uuid4().hex
         resolved_name = Path(original_name).name
         self._validate_upload_name(resolved_name)
@@ -1835,10 +1955,16 @@ class DocumentService:
             size_bytes=size_bytes,
             uploaded_at=datetime.now(UTC).isoformat(),
             source_origin=source_origin,
+            source_connector_id=source_connector_id,
             source_provider=source_provider,
             source_uri=source_uri,
             source_container=source_container,
             source_last_modified_at=source_last_modified_at,
+            visibility=normalized_visibility,
+            access_usernames=self._normalize_document_access_usernames(
+                access_usernames or [],
+                visibility=normalized_visibility,
+            ),
         )
 
         self._write_metadata(document)
@@ -1851,11 +1977,15 @@ class DocumentService:
         source_path: Path,
         original_name: str,
         content_type: str,
+        source_connector_id: str | None,
         source_provider: str | None,
         source_uri: str | None,
         source_container: str | None,
         source_last_modified_at: str | None,
+        visibility: str = "standard",
+        access_usernames: list[str] | None = None,
     ) -> DocumentRecord:
+        normalized_visibility = self._normalize_document_visibility(visibility)
         target_path = self.uploads_dir / document.stored_name
         self._validate_upload_name(Path(original_name).name)
         with source_path.open("rb") as source_file:
@@ -1868,10 +1998,16 @@ class DocumentService:
         document.content_type = content_type
         document.size_bytes = size_bytes
         document.source_origin = "connector" if source_provider or source_uri else "import"
+        document.source_connector_id = source_connector_id
         document.source_provider = source_provider
         document.source_uri = source_uri
         document.source_container = source_container
         document.source_last_modified_at = source_last_modified_at
+        document.visibility = normalized_visibility
+        document.access_usernames = self._normalize_document_access_usernames(
+            access_usernames or [],
+            visibility=normalized_visibility,
+        )
         document.processing_status = "pending"
         document.processing_stage = "queued"
         document.processing_started_at = None
@@ -1892,16 +2028,39 @@ class DocumentService:
         document: DocumentRecord,
         *,
         is_admin: bool,
+        viewer_username: str | None = None,
     ) -> bool:
         if is_admin:
             return True
-        return (document.visibility or "standard") != "hidden"
+        visibility = (document.visibility or "standard").strip().lower()
+        if visibility == "hidden":
+            return False
+        if visibility != "restricted":
+            return True
+        if not viewer_username:
+            return False
+
+        normalized_username = viewer_username.strip().lower()
+        return normalized_username in {
+            username.strip().lower()
+            for username in (document.access_usernames or [])
+            if username.strip()
+        }
+
+    def _normalize_document_visibility(self, visibility: str | None) -> str:
+        normalized_visibility = (visibility or "standard").strip().lower()
+        if normalized_visibility not in {"standard", "hidden", "restricted"}:
+            raise ValueError(
+                "Visibility must be 'standard', 'hidden', or 'restricted'."
+            )
+        return normalized_visibility
 
     def _filter_documents_for_viewer(
         self,
         documents: list[DocumentRecord],
         *,
         is_admin: bool,
+        viewer_username: str | None = None,
     ) -> list[DocumentRecord]:
         if is_admin:
             return documents
@@ -1909,8 +2068,53 @@ class DocumentService:
         return [
             document
             for document in documents
-            if self._document_is_visible_to_viewer(document, is_admin=is_admin)
+            if self._document_is_visible_to_viewer(
+                document,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
         ]
+
+    def _normalize_document_access_usernames(
+        self,
+        values: list[str],
+        *,
+        visibility: str,
+    ) -> list[str]:
+        if visibility != "restricted":
+            return []
+
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            candidate = value.strip()
+            if not candidate:
+                continue
+
+            user = self.user_service.get_user_by_username(candidate)
+            if user is None or not user.enabled:
+                raise ValueError(
+                    f"User '{candidate}' does not exist or is disabled."
+                )
+
+            lowered = user.username.lower()
+            if lowered in seen:
+                continue
+
+            seen.add(lowered)
+            normalized.append(user.username)
+
+        if not normalized:
+            raise ValueError(
+                "Restricted documents must allow at least one enabled user."
+            )
+
+        return normalized
+
+    def _sanitize_document_for_viewer(self, document: DocumentRecord) -> DocumentRecord:
+        sanitized = document.model_copy(deep=True)
+        sanitized.access_usernames = []
+        return sanitized
 
     def _safe_name(self, value: str) -> str:
         sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip())

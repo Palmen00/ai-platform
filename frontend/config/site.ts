@@ -204,8 +204,16 @@ export const siteConfig = {
     reprocessButton: "Reprocess",
     hideButton: "Hide",
     unhideButton: "Unhide",
+    restrictButton: "Restrict",
+    editRestrictedAccessButton: "Edit access",
+    standardAccessButton: "Standard access",
+    restrictPrompt:
+      "Allowed usernames for this restricted document, comma separated:",
+    restrictPromptEmpty:
+      "Enter at least one enabled username to restrict a document.",
     processingButton: "Processing...",
     hiddenVisibilityLabel: "Hidden",
+    restrictedVisibilityLabel: "Restricted",
     processedLabel: "Processed",
     pendingLabel: "Pending",
     failedLabel: "Failed",
@@ -264,25 +272,26 @@ export const siteConfig = {
       noFileSelected: "Select a file before uploading.",
       hideSuccess: "Document hidden from non-admin views.",
       unhideSuccess: "Document restored to standard visibility.",
+      restrictSuccess: "Document access limited to selected users.",
       visibilityError: "Could not update document visibility.",
     },
   },
   connectors: {
     title: "Connectors",
     subtitle:
-      "Register external sources like Google Drive, SharePoint, or local folders and sync them into the same knowledge pipeline.",
+      "Connect external sources and sync them into the same knowledge pipeline.",
     refreshButton: "Refresh connectors",
     createTitle: "Add connector",
     createSubtitle:
-      "Start with a narrow connector definition so sync stays fast and predictable while we harden the full flow.",
+      "Start narrow so first sync stays fast and predictable.",
     createButton: "Create connector",
     creatingButton: "Creating...",
     savedTitle: "Saved connectors",
     savedSubtitle:
-      "Run sync manually for now. Later this can become scheduled and more automated.",
+      "Run sync manually for now.",
     setupTitle: "Setup choices",
     setupDescription:
-      "Start narrow. It is usually better to sync a smaller, text-heavy slice first and expand later.",
+      "Smaller, text-heavy scope is usually the best first sync.",
     loadingLabel: "Loading connectors...",
     refreshingLabel: "Refreshing saved connectors...",
     emptyState: "No connectors created yet.",
@@ -308,6 +317,8 @@ export const siteConfig = {
     folderIdLabel: "Folder ID",
     driveIdLabel: "Drive ID",
     maxFilesLabel: "Max files per sync",
+    documentVisibilityLabel: "Default access",
+    accessUsersLabel: "Allowed users",
     enabledLabel: "Enabled",
     disabledLabel: "Disabled",
     syncSummaryTitle: "Latest sync",
@@ -323,25 +334,36 @@ export const siteConfig = {
     folderPickerPick: "Use this folder",
     folderPickerSelectedPrefix: "Selected folder",
     deleteConfirm:
-      "Delete this connector? Existing imported documents stay in Knowledge until you remove them separately.",
+      "Delete this connector? Imported documents stay in Knowledge until removed separately.",
     folderIdPlaceholder: "Optional Google folder ID",
     driveIdPlaceholder: "Optional shared drive ID",
     maxFilesPlaceholder: "Optional cap, for example 25",
+    accessUsersPlaceholder: "Comma separated usernames for restricted sources",
     notesPlaceholder:
-      "Example: prototype root sync limited to office, pdf, code, and text-like files.",
+      "Example: pilot sync limited to office, pdf, code, and text files.",
+    accessUsersHelp:
+      "Restricted sources are visible only to admin and the usernames listed here.",
+    accessUsersDisabledHelp:
+      "Allowed users only apply when the connector default access is set to Restricted.",
+    availableUsersLabel: "Enabled users",
     patternsHint:
-      "New connectors are created with text-like, Office, code/config, and PDF include patterns, while images and zip files are excluded by default.",
+      "New connectors start with text-like, Office, code/config, and PDF patterns. Images and zip files are excluded.",
+    documentVisibilityOptions: {
+      standard: "Standard",
+      hidden: "Hidden",
+      restricted: "Restricted",
+    },
     presetLabel: "Sync scope",
     presetRecommended: "Recommended",
     presetOfficeOnly: "Office + PDF",
     presetCodeAndText: "Code + text",
     presetAllTextLike: "All text-like",
     presetHelpRecommended:
-      "Best default for most companies: office docs, PDFs, notes, data files, and common code/config files.",
+      "Best default for most teams: office docs, PDFs, notes, data files, and common code/config files.",
     presetHelpOfficeOnly:
-      "Good when you want a safer first sync focused on Word, Sheets, Slides, spreadsheets, and PDFs.",
+      "Safer first sync focused on Office files and PDFs.",
     presetHelpCodeAndText:
-      "Useful for engineering-heavy folders with scripts, configs, markdown, and text files.",
+      "Good for engineering-heavy folders with scripts, configs, markdown, and text files.",
     presetHelpAllTextLike:
       "Broadest preset. Includes all supported text-like, office, and code/config formats while still skipping images and archives.",
     fields: {
@@ -350,6 +372,8 @@ export const siteConfig = {
       authMode: "Auth mode",
       rootPath: "Root path",
       container: "Container label",
+      documentVisibility: "Default document access",
+      accessUsers: "Allowed users",
       folderId: "Folder ID",
       driveId: "Drive ID",
       maxFiles: "Max files per sync",
@@ -372,9 +396,9 @@ export const siteConfig = {
     auth: {
       title: "Admin access",
       subtitle:
-        "Settings and connector management are protected in this environment. Sign in with the local admin password to continue.",
-      passwordLabel: "Admin password",
-      passwordPlaceholder: "Enter admin password",
+        "Settings and connector management are protected here. Sign in with a local admin account to continue.",
+      passwordLabel: "Password",
+      passwordPlaceholder: "Enter password",
       loginButton: "Unlock settings",
       loggingInButton: "Unlocking...",
       logoutButton: "Lock settings",
@@ -382,30 +406,36 @@ export const siteConfig = {
       unlockedBadge: "Admin unlocked",
       loginError: "Could not unlock settings.",
       configurationWarning:
-        "Admin auth is enabled but not fully configured. Add ADMIN_PASSWORD and ADMIN_SESSION_SECRET to enforce it.",
+        "Admin auth is enabled but not fully configured. Add ADMIN_PASSWORD_HASH and ADMIN_SESSION_SECRET.",
       lockHelp:
-        "Lock settings only signs out the current admin session. It does not disable security for the app.",
+        "Lock settings only signs out the current admin session.",
       envToggleHelp:
-        "To disable admin auth entirely, set AUTH_ENABLED=false in .env and restart the backend. To disable safe mode, set SAFE_MODE=false and restart the backend.",
+        "To disable admin auth, set AUTH_ENABLED=false in .env and restart. To disable safe mode, set SAFE_MODE=false and restart.",
     },
     tabs: {
       overview: "Overview",
       storage: "Storage",
+      cleanup: "Cleanup",
       runtime: "Runtime",
+      retrieval: "Retrieval",
       connectors: "Connectors",
+      users: "Users",
       security: "Security",
-      debug: "Debug",
+      audit: "Audit",
+      backups: "Backups",
+      logs: "Logs",
       models: "Models",
     },
     securityTitle: "Security",
     securitySubtitle:
-      "Current protection state, safe mode behavior, and the next layer of access control for sensitive workspaces.",
+      "Current protection state and the next layer of access control for sensitive workspaces.",
     securityCards: {
       adminAuth: "Admin auth",
       safeMode: "Safe mode",
       protectedAreas: "Protected areas",
       futureControls: "Next controls",
       howItWorks: "How it works",
+      auditTrail: "Audit trail",
     },
     securityValues: {
       enabled: "Enabled",
@@ -417,29 +447,36 @@ export const siteConfig = {
     },
     securityProtectedAreas: [
       "Settings changes",
-      "Connectors and sync controls",
+      "Connector creation, sync, and import controls",
       "Logs",
       "Cleanup",
       "Backup import/export",
     ],
     securityFutureControls: [
       "Hide or pin sensitive documents",
-      "Multiple accounts and admin roles",
+      "Richer document and source permissions",
       "Per-source and per-document permissions",
-      "Safer secret storage for connector credentials",
+      "Audit trails for account and permission changes",
     ],
     securityNotes: {
       authDisabled:
-        "Admin auth is currently off in this environment. That is fine for local prototyping, but we should enable it before wider internal use.",
+        "Admin auth is off in this environment. Fine for local prototyping, but not for wider internal use.",
       authEnabledConfigured:
-        "Admin auth is active and configured. Settings and other sensitive surfaces now require an admin unlock.",
+        "Admin auth is active and configured. Sensitive surfaces now require an admin unlock.",
       authEnabledNotConfigured:
-        "Admin auth is turned on but not fully configured yet. Add ADMIN_PASSWORD and ADMIN_SESSION_SECRET before relying on it.",
+        "Admin auth is on but not fully configured yet. Add ADMIN_PASSWORD_HASH and ADMIN_SESSION_SECRET before relying on it.",
       safeModeEnabled:
-        "Safe mode is active. Higher-risk actions are blocked until we deliberately relax them.",
+        "Safe mode is active. Higher-risk actions like connector sync, cleanup, and backup import/export are blocked.",
       safeModeDisabled:
-        "Safe mode is currently off. That keeps iteration fast, but it also leaves cleanup and import/export fully available.",
+        "Safe mode is off. Better for normal setup and iteration, but higher-risk admin actions remain available.",
     },
+    securityAuditTitle: "Recent audit activity",
+    securityAuditSubtitle:
+      "Track logins, user changes, permission changes, connector actions, and other sensitive events.",
+    securityAuditRefreshLabel: "Refresh audit",
+    securityAuditOpenLogsLabel: "Open full logs",
+    securityAuditEmpty: "No audit events recorded yet.",
+    securityAuditLoadError: "Could not load audit events.",
     runtimeTitle: "Runtime configuration",
     runtimeSubtitle:
       "Update the local AI runtime without editing environment files by hand.",
@@ -456,13 +493,13 @@ export const siteConfig = {
     },
     dependenciesTitle: "Dependencies",
     dependenciesSubtitle:
-      "Live reachability and runtime details for the services this app depends on.",
+      "Live reachability and runtime details for core dependencies.",
     storageTitle: "Storage",
     storageSubtitle:
       "Current local content volume across documents, indexing, and saved conversations.",
     storageUsageTitle: "Storage usage",
     storageUsageSubtitle:
-      "See what is taking space locally and which areas are usually safe to clean up.",
+      "See what is taking space locally.",
     storageControls: {
       sortLabel: "Sort",
       filterLabel: "Filter",
@@ -477,7 +514,7 @@ export const siteConfig = {
       cleanAllLabel: "Clean safe areas",
       cleaningLabel: "Cleaning...",
       cleanupHint:
-        "Only safe-to-regenerate areas can be cleaned from the app. Persistent uploads, vectors, and chats stay untouched.",
+        "Only safe-to-regenerate areas can be cleaned here. Persistent uploads, vectors, and chats stay untouched.",
       cleanupError: "Could not run cleanup.",
       cleanupConfirmSingle:
         "Clean this safe-to-regenerate storage area? Persistent data will be preserved.",
@@ -505,7 +542,7 @@ export const siteConfig = {
     },
     toolsTitle: "Debug tools",
     toolsSubtitle:
-      "Inspect backend activity, runtime behavior, and recent application events.",
+      "Inspect backend activity and recent application events.",
     openLogsLabel: "Open logs",
     exportTitle: "Backup and export",
     exportSubtitle:
@@ -524,7 +561,7 @@ export const siteConfig = {
     importSuccess:
       "Backup imported. Runtime settings and conversations were restored.",
     importWarning:
-      "This import restores runtime settings and saved chats only. Uploaded files and vector data are not restored in this step.",
+      "This restores runtime settings and saved chats only. Uploaded files and vector data are not restored here.",
     fields: {
       ollamaBaseUrl: "Ollama base URL",
       defaultModel: "Default chat model",
@@ -547,7 +584,7 @@ export const siteConfig = {
   logs: {
     title: "Logs",
     subtitle:
-      "Recent backend events, request outcomes, and raw application log lines.",
+      "Recent backend events, request outcomes, and raw log lines.",
     refreshButton: "Refresh",
     downloadButton: "Download logs",
     eventsTitle: "Recent events",
@@ -564,6 +601,7 @@ export const siteConfig = {
     filterTypeAll: "All event types",
     columns: {
       timestamp: "Timestamp",
+      actor: "Actor",
       type: "Type",
       status: "Status",
       message: "Message",

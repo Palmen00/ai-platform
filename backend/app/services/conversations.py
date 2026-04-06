@@ -16,18 +16,33 @@ class ConversationService:
     def __init__(self) -> None:
         self.conversations_dir = settings.conversations_dir
 
-    def list_conversations(self) -> list[ConversationDetail]:
+    def list_conversations(
+        self,
+        owner_username: str | None = None,
+        *,
+        is_admin: bool = False,
+    ) -> list[ConversationDetail]:
         conversations: list[ConversationDetail] = []
 
         for path in sorted(self.conversations_dir.glob("*.json")):
             with path.open("r", encoding="utf-8") as file_handle:
                 payload = json.load(file_handle)
-                conversations.append(ConversationDetail.model_validate(payload))
+                conversation = ConversationDetail.model_validate(payload)
+                if not self._conversation_visible_to_user(
+                    conversation,
+                    owner_username=owner_username,
+                    is_admin=is_admin,
+                ):
+                    continue
+                conversations.append(conversation)
 
         return sorted(conversations, key=lambda item: item.updated_at, reverse=True)
 
     def create_conversation(
-        self, payload: ConversationCreateRequest | None = None
+        self,
+        payload: ConversationCreateRequest | None = None,
+        *,
+        owner_username: str | None = None,
     ) -> ConversationDetail:
         now = datetime.now(UTC).isoformat()
         conversation = ConversationDetail(
@@ -36,6 +51,7 @@ class ConversationService:
             model=payload.model if payload else None,
             document_ids=payload.document_ids if payload else [],
             message_count=0,
+            owner_username=owner_username,
             created_at=now,
             updated_at=now,
             messages=[],
@@ -43,7 +59,13 @@ class ConversationService:
         self._write_conversation(conversation)
         return conversation
 
-    def get_conversation(self, conversation_id: str) -> ConversationDetail | None:
+    def get_conversation(
+        self,
+        conversation_id: str,
+        *,
+        owner_username: str | None = None,
+        is_admin: bool = False,
+    ) -> ConversationDetail | None:
         path = self._conversation_path(conversation_id)
         if not path.exists():
             return None
@@ -51,12 +73,28 @@ class ConversationService:
         with path.open("r", encoding="utf-8") as file_handle:
             payload = json.load(file_handle)
 
-        return ConversationDetail.model_validate(payload)
+        conversation = ConversationDetail.model_validate(payload)
+        if not self._conversation_visible_to_user(
+            conversation,
+            owner_username=owner_username,
+            is_admin=is_admin,
+        ):
+            return None
+        return conversation
 
     def update_conversation(
-        self, conversation_id: str, payload: ConversationUpdateRequest
+        self,
+        conversation_id: str,
+        payload: ConversationUpdateRequest,
+        *,
+        owner_username: str | None = None,
+        is_admin: bool = False,
     ) -> ConversationDetail | None:
-        conversation = self.get_conversation(conversation_id)
+        conversation = self.get_conversation(
+            conversation_id,
+            owner_username=owner_username,
+            is_admin=is_admin,
+        )
         if conversation is None:
             return None
 
@@ -85,12 +123,22 @@ class ConversationService:
         self._write_conversation(conversation)
         return conversation
 
-    def delete_conversation(self, conversation_id: str) -> bool:
-        path = self._conversation_path(conversation_id)
-        if not path.exists():
+    def delete_conversation(
+        self,
+        conversation_id: str,
+        *,
+        owner_username: str | None = None,
+        is_admin: bool = False,
+    ) -> bool:
+        conversation = self.get_conversation(
+            conversation_id,
+            owner_username=owner_username,
+            is_admin=is_admin,
+        )
+        if conversation is None:
             return False
 
-        path.unlink()
+        self._conversation_path(conversation_id).unlink()
         return True
 
     def append_round_trip(
@@ -100,17 +148,29 @@ class ConversationService:
         assistant_message: ChatHistoryMessage,
         model: str | None,
         document_ids: list[str] | None = None,
+        *,
+        owner_username: str | None = None,
+        is_admin: bool = False,
     ) -> ConversationDetail:
         conversation = (
-            self.get_conversation(conversation_id) if conversation_id else None
+            self.get_conversation(
+                conversation_id,
+                owner_username=owner_username,
+                is_admin=is_admin,
+            )
+            if conversation_id
+            else None
         )
         if conversation is None:
             conversation = self.create_conversation(
-                ConversationCreateRequest(model=model, document_ids=document_ids or [])
+                ConversationCreateRequest(model=model, document_ids=document_ids or []),
+                owner_username=owner_username,
             )
 
         conversation.model = model
         conversation.document_ids = document_ids or []
+        if conversation.owner_username is None and owner_username:
+            conversation.owner_username = owner_username
         conversation.messages.extend([user_message, assistant_message])
         conversation.message_count = len(conversation.messages)
         conversation.updated_at = datetime.now(UTC).isoformat()
@@ -150,3 +210,18 @@ class ConversationService:
             return "New chat"
 
         return normalized[:60] + ("..." if len(normalized) > 60 else "")
+
+    def _conversation_visible_to_user(
+        self,
+        conversation: ConversationDetail,
+        *,
+        owner_username: str | None,
+        is_admin: bool,
+    ) -> bool:
+        if is_admin:
+            return True
+
+        if not owner_username:
+            return conversation.owner_username is None
+
+        return conversation.owner_username == owner_username

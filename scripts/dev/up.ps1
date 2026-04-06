@@ -4,3 +4,4 @@
 
 Write-Host "Starting infrastructure services..."
 Invoke-DockerCompose -Arguments @("up", "-d")
+Ensure-QdrantRunning

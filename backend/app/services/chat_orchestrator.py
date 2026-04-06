@@ -15,7 +15,14 @@ class ChatOrchestrator:
     def default_model(self) -> str:
         return self.generation_service.default_model
 
-    def respond(self, payload: ChatRequest, *, is_admin: bool = False) -> ChatResponse:
+    def respond(
+        self,
+        payload: ChatRequest,
+        *,
+        is_admin: bool = False,
+        owner_username: str | None = None,
+        viewer_username: str | None = None,
+    ) -> ChatResponse:
         user_message = payload.message.strip()
         if not user_message:
             return ChatResponse(reply="Please enter a message.", model=payload.model)
@@ -26,6 +33,7 @@ class ChatOrchestrator:
             limit=settings.retrieval_limit,
             allowed_document_ids=payload.document_ids,
             is_admin=is_admin,
+            viewer_username=viewer_username,
         )
         sources = retrieval_result.sources
         direct_reply = self.retrieval_service.build_grounded_document_reply(
@@ -34,6 +42,7 @@ class ChatOrchestrator:
             allowed_document_ids=payload.document_ids,
             history=payload.history,
             is_admin=is_admin,
+            viewer_username=viewer_username,
         )
         if direct_reply and (
             self.retrieval_service.document_service.is_document_inventory_query(
@@ -87,6 +96,8 @@ class ChatOrchestrator:
                 ),
                 model=selected_model,
                 document_ids=payload.document_ids,
+                owner_username=owner_username,
+                is_admin=is_admin,
             )
             conversation_id = conversation.id
 

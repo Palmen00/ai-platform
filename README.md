@@ -39,12 +39,16 @@ That starts the backend in a separate PowerShell window with lower process prior
 For admin protection and a stricter runtime profile, these env values are now available:
 
 - `AUTH_ENABLED=true`
-- `ADMIN_PASSWORD=...`
+- `ADMIN_USERNAME=Admin`
+- `ADMIN_PASSWORD_HASH=...`
 - `ADMIN_SESSION_SECRET=...`
+- `APP_SECRETS_KEY=...`
 - `ADMIN_SESSION_TTL_HOURS=12`
 - `SAFE_MODE=true`
 
 When `AUTH_ENABLED` is active and fully configured, `Settings`, `Connectors`, logs, runtime changes, cleanup, and backup import/export require admin sign-in from the UI. `SAFE_MODE` additionally blocks higher-risk operations such as cleanup, backup import/export, runtime setting changes, and manual connector imports.
+
+Admin sessions now use an `HttpOnly` cookie instead of browser storage. New installs should prefer `ADMIN_PASSWORD_HASH` over cleartext `ADMIN_PASSWORD`, and `.env.ubuntu` is now written with `chmod 600` by the Ubuntu configure phase. The installer/bootstrap flow now also writes `ADMIN_USERNAME`, so the first bootstrap admin can be named during setup instead of being fixed in code.
 
 Optional OCR support for scanned PDFs and image files:
 
@@ -67,6 +71,7 @@ Optional OCR support for scanned PDFs and image files:
 - `./scripts/dev-down.ps1`: Stop Docker services
 - `./scripts/dev/status.ps1`: Show Docker service status
 - `./scripts/dev/logs.ps1 backend`: Follow service logs
+- `./scripts/dev/ensure-qdrant.ps1`: Ensure the local Qdrant container is running and healthy
 - `./scripts/dev/run-backend.ps1 -Reload`: Start the backend in a separate PowerShell window with lower priority and optional low-impact mode
 - `./scripts/dev/check-network.ps1`: Show top CPU processes, top external connection owners, and AI-stack network activity
 - `./scripts/preflight.ps1`: Check local tooling, backend imports, OCR support, and service reachability
@@ -169,6 +174,14 @@ Start infrastructure services:
 ./scripts/dev-up.ps1
 ```
 
+Or repair just Qdrant:
+
+```powershell
+./scripts/dev/ensure-qdrant.ps1
+```
+
+`./scripts/dev-up.ps1` and `./scripts/dev/run-backend.ps1` now both verify that local Qdrant is healthy before continuing, and the backend also retries with a fresh Qdrant client after local restarts.
+
 Then re-check:
 
 ```powershell
@@ -247,10 +260,69 @@ The installer now also supports a first non-interactive path for automation:
   --profile balanced \
   --ollama-mode external \
   --ollama-base-url http://10.0.0.20:11434 \
+  --auth-mode required \
   --security-profile safe \
-  --admin-password 'change-me-now' \
+  --admin-username Admin \
+  --admin-password-file /root/local-ai-os-admin-password \
   --data-root /opt/local-ai-os/data
 ```
+
+The installer now supports two access modes:
+
+- `required`: sign-in is enforced from the first page
+- `open`: the app starts in local open mode and accounts can be enabled later
+
+For most real deployments, `required` should stay the default.
+
+The installer also supports a reusable answer file:
+
+```bash
+./scripts/deploy/ubuntu/installer.sh --non-interactive --answer-file ./scripts/deploy/ubuntu/answer-file.example.env
+```
+
+The example file lives here:
+
+- `scripts/deploy/ubuntu/answer-file.example.env`
+
+This is the easiest path when you want to reuse the same install profile across multiple servers.
+
+There is also a recommended standard server profile:
+
+- `scripts/deploy/ubuntu/answer-file.standard.env`
+
+You can validate it before a real install with:
+
+```bash
+printf '%s\n' 'change-me-now' >/tmp/local-ai-os-admin-password
+./scripts/deploy/ubuntu/configure.sh --non-interactive --validate-only --answer-file ./scripts/deploy/ubuntu/answer-file.standard.env
+```
+
+That standard profile keeps:
+
+- sign-in required
+- safe mode off
+- OCR on
+- local Ollama
+
+Before deploy starts, the installer now prints a preflight summary of:
+
+- profile
+- Ollama mode and URL
+- access mode
+- bootstrap admin
+- safe mode
+- OCR
+- connector features
+- storage root
+- ports and public API URL
+
+Interactive installs stop there for confirmation before deploy continues.
+
+After a successful verify phase, the installer now writes an install report to:
+
+- `${DATA_ROOT_HOST}/app/install/install-report-latest.md`
+
+and also keeps a timestamped copy beside it.
 
 The Ubuntu deployment uses:
 - `infra/docker-compose.deploy.yml`
@@ -276,7 +348,7 @@ You can also forward installer automation flags through the bootstrap path:
 
 ```bash
 export GITHUB_TOKEN=your_token_here
-./install-local-ai-os.sh --installer-args "--non-interactive --profile balanced --admin-password change-me-now"
+./install-local-ai-os.sh --installer-args "--non-interactive --profile balanced --auth-mode required --admin-username Admin --admin-password-file /root/local-ai-os-admin-password"
 ```
 
 ## Retrieval Evals

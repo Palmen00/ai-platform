@@ -16,6 +16,7 @@ export default function KnowledgePage() {
   const searchParams = useSearchParams();
   const [isFileTypesModalOpen, setIsFileTypesModalOpen] = useState(false);
   const [authStatus, setAuthStatus] = useState<AuthStatusResponse | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const requestedPreviewId = searchParams.get("preview") ?? "";
   const requestedChunk = searchParams.get("chunk");
   const openedPreviewKeyRef = useRef("");
@@ -71,6 +72,10 @@ export default function KnowledgePage() {
       } catch {
         if (isMounted) {
           setAuthStatus(null);
+        }
+      } finally {
+        if (isMounted) {
+          setIsAuthLoading(false);
         }
       }
     }
@@ -142,7 +147,46 @@ export default function KnowledgePage() {
   const canManageVisibility =
     authStatus === null
       ? false
-      : !authStatus.auth_enabled || authStatus.authenticated;
+      : !authStatus.auth_enabled || authStatus.role === "admin";
+  const canManageDocuments =
+    authStatus === null
+      ? false
+      : !authStatus.auth_enabled || authStatus.role === "admin";
+  const requiresSignIn = !!authStatus?.auth_enabled && !authStatus?.authenticated;
+
+  if (isAuthLoading) {
+    return (
+      <AppShell contentClassName="p-4 md:p-6 xl:p-8">
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-10 text-sm text-slate-600 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8">
+          Loading knowledge...
+        </section>
+      </AppShell>
+    );
+  }
+
+  if (requiresSignIn) {
+    return (
+      <AppShell contentClassName="p-4 md:p-6 xl:p-8">
+        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8 md:py-8">
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+            {siteConfig.knowledge.title}
+          </p>
+          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+            Sign in to open Knowledge
+          </h2>
+          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+            This workspace requires a signed-in account before documents can be listed or searched. Use Settings to sign in, then come back here.
+          </p>
+          <Link
+            href="/login?next=/knowledge"
+            className="mt-5 inline-flex rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+          >
+            Open Login
+          </Link>
+        </section>
+      </AppShell>
+    );
+  }
 
   return (
     <AppShell contentClassName="p-4 md:p-6 xl:p-8">
@@ -177,7 +221,7 @@ export default function KnowledgePage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {documents.length > 0 && (
+            {canManageDocuments && documents.length > 0 && (
               <button
                 onClick={() => void reprocessEveryDocument()}
                 disabled={isReprocessingAll}
@@ -189,7 +233,7 @@ export default function KnowledgePage() {
               </button>
             )}
 
-            {hasIncompleteDocuments && (
+            {canManageDocuments && hasIncompleteDocuments && (
               <button
                 onClick={() => void retryIncompleteIndexing()}
                 disabled={isRetryingIncomplete}
@@ -228,7 +272,12 @@ export default function KnowledgePage() {
           </div>
         )}
 
-        <DocumentUploadForm isUploading={isUploading} onUpload={addDocuments} />
+        <DocumentUploadForm
+          isUploading={isUploading}
+          disabled={!canManageDocuments}
+          disabledMessage="Viewer accounts can explore Knowledge, but only admins can upload or reprocess files."
+          onUpload={addDocuments}
+        />
         <DocumentList
           documents={documents}
           totalCount={totalCount}
@@ -253,6 +302,7 @@ export default function KnowledgePage() {
           onDelete={removeDocument}
           onReprocess={reprocessDocument}
           onPreview={openDocumentPreview}
+          canManageDocuments={canManageDocuments}
           canManageVisibility={canManageVisibility}
           onSetVisibility={setDocumentVisibility}
         />

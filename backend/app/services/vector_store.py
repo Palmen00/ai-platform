@@ -1,3 +1,4 @@
+import time
 from uuid import NAMESPACE_URL, uuid5
 
 from qdrant_client import QdrantClient
@@ -11,20 +12,39 @@ from app.schemas.settings import DependencyStatus
 
 class VectorStoreService:
     def __init__(self) -> None:
-        self._client: QdrantClient | None = None
-        self._client_url = ""
+        pass
 
     @property
     def collection_name(self) -> str:
         return settings.qdrant_collection_name
 
-    @property
-    def client(self) -> QdrantClient:
-        if self._client is None or self._client_url != settings.qdrant_url:
-            self._client = QdrantClient(url=settings.qdrant_url)
-            self._client_url = settings.qdrant_url
+    def _create_client(self) -> QdrantClient:
+        return QdrantClient(url=settings.qdrant_url)
 
-        return self._client
+    def _call_with_retry(self, operation, *, retry_delay_seconds: float = 0.5):
+        last_exception: Exception | None = None
+
+        for attempt in range(2):
+            client = self._create_client()
+            try:
+                return operation(client)
+            except Exception as exc:
+                last_exception = exc
+                if attempt == 0:
+                    time.sleep(retry_delay_seconds)
+                    continue
+
+        if last_exception is not None:
+            raise last_exception
+
+        raise RuntimeError("Qdrant operation failed without an exception.")
+
+    def _collection_exists(self) -> bool:
+        return bool(
+            self._call_with_retry(
+                lambda client: client.collection_exists(self.collection_name)
+            )
+        )
 
     def index_document_chunks(
         self,
@@ -70,23 +90,30 @@ class VectorStoreService:
             )
 
         if points:
-            self.client.upsert(collection_name=self.collection_name, points=points)
+            self._call_with_retry(
+                lambda client: client.upsert(
+                    collection_name=self.collection_name,
+                    points=points,
+                )
+            )
 
     def remove_document_chunks(self, document_id: str) -> None:
-        if not self.client.collection_exists(self.collection_name):
+        if not self._collection_exists():
             return
 
-        self.client.delete(
-            collection_name=self.collection_name,
-            points_selector=models.FilterSelector(
-                filter=models.Filter(
-                    must=[
-                        models.FieldCondition(
-                            key="document_id",
-                            match=models.MatchValue(value=document_id),
-                        )
-                    ]
-                )
+        self._call_with_retry(
+            lambda client: client.delete(
+                collection_name=self.collection_name,
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="document_id",
+                                match=models.MatchValue(value=document_id),
+                            )
+                        ]
+                    )
+                ),
             ),
         )
 
@@ -99,7 +126,7 @@ class VectorStoreService:
         if not query_vector:
             return []
 
-        if not self.client.collection_exists(self.collection_name):
+        if not self._collection_exists():
             return []
 
         query_filter = None
@@ -113,12 +140,14 @@ class VectorStoreService:
                 ]
             )
 
-        results = self.client.search(
-            collection_name=self.collection_name,
-            query_vector=query_vector,
-            limit=limit,
-            with_payload=True,
-            query_filter=query_filter,
+        results = self._call_with_retry(
+            lambda client: client.search(
+                collection_name=self.collection_name,
+                query_vector=query_vector,
+                limit=limit,
+                with_payload=True,
+                query_filter=query_filter,
+            )
         )
 
         sources: list[ChatSource] = []
@@ -159,24 +188,33 @@ class VectorStoreService:
         return sources
 
     def _ensure_collection(self, vector_size: int) -> None:
-        if self.client.collection_exists(self.collection_name):
+        if self._collection_exists():
             return
 
-        self.client.create_collection(
-            collection_name=self.collection_name,
-            vectors_config=models.VectorParams(
-                size=vector_size,
-                distance=models.Distance.COSINE,
-            ),
-        )
+        try:
+            self._call_with_retry(
+                lambda client: client.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=models.VectorParams(
+                        size=vector_size,
+                        distance=models.Distance.COSINE,
+                    ),
+                )
+            )
+        except Exception:
+            if self._collection_exists():
+                return
+            raise
 
     def get_status(self) -> DependencyStatus:
         try:
-            collection_exists = self.client.collection_exists(self.collection_name)
+            collection_exists = self._collection_exists()
             indexed_point_count: int | None = None
 
             if collection_exists:
-                collection_info = self.client.get_collection(self.collection_name)
+                collection_info = self._call_with_retry(
+                    lambda client: client.get_collection(self.collection_name)
+                )
                 indexed_point_count = getattr(
                     collection_info,
                     "points_count",

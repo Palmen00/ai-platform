@@ -3,6 +3,7 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "${script_dir}/../lib/common.sh"
 
 show_help() {
   cat <<'EOF'
@@ -21,8 +22,13 @@ Options:
   --profile <value>      Forward profile to configure phase
   --ollama-mode <value>  Forward Ollama mode to configure phase
   --ollama-base-url <v>  Forward external Ollama URL to configure phase
+  --answer-file <path>   Forward an answer file to configure phase
   --security-profile <v> Forward security profile to configure phase
-  --admin-password <v>   Forward admin password to configure phase
+  --auth-mode <v>        Forward access mode to configure phase
+  --admin-username <v>   Forward bootstrap admin username to configure phase
+  --admin-password <v>   Legacy fallback admin password to configure phase
+  --admin-password-file <path>
+                        Preferred admin password file for configure phase
   --data-root <path>     Forward data root to configure phase
   --frontend-port <p>    Forward frontend port to configure phase
   --backend-port <p>     Forward backend port to configure phase
@@ -49,10 +55,49 @@ run_phase() {
   "${phase_script}"
 }
 
+print_preflight_summary() {
+  load_deploy_env
+
+  cat <<EOF
+
+==> Preflight summary
+Env file: ${deploy_env_file}
+
+Profile: ${INSTALL_PROFILE:-unknown}
+Ollama mode: ${INSTALL_OLLAMA_MODE:-unknown}
+Ollama URL: ${OLLAMA_BASE_URL:-not set}
+Access mode: ${INSTALL_AUTH_MODE:-unknown}
+Bootstrap admin: ${ADMIN_USERNAME:-not set}
+Safe mode: ${SAFE_MODE:-false}
+OCR enabled: ${OCR_ENABLED:-false}
+Connector features: ${INSTALL_CONNECTOR_FEATURES_ENABLED:-${CONNECTOR_FEATURES_ENABLED:-false}}
+Data root: ${DATA_ROOT_HOST:-not set}
+Frontend port: ${FRONTEND_PORT:-not set}
+Backend port: ${BACKEND_PORT:-not set}
+Qdrant port: ${QDRANT_PORT:-not set}
+Public API URL: ${NEXT_PUBLIC_API_BASE_URL:-not set}
+EOF
+}
+
+confirm_preflight_summary() {
+  if [[ "${non_interactive}" == "true" ]]; then
+    return
+  fi
+
+  local response=""
+  read -r -p "Continue to deploy with this configuration? [Y/n]: " response
+  response="${response,,}"
+  if [[ -n "${response}" && "${response}" != "y" && "${response}" != "yes" ]]; then
+    echo "Installer stopped before deploy."
+    exit 0
+  fi
+}
+
 skip_bootstrap=false
 skip_configure=false
 skip_deploy=false
 skip_verify=false
+non_interactive=false
 from_phase="bootstrap"
 configure_args=()
 
@@ -83,10 +128,11 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     --non-interactive)
+      non_interactive=true
       configure_args+=("$1")
       shift
       ;;
-    --profile|--ollama-mode|--ollama-base-url|--security-profile|--admin-password|--data-root|--frontend-port|--backend-port|--qdrant-port|--hostname|--ocr-enabled|--connector-features-enabled)
+    --profile|--ollama-mode|--ollama-base-url|--answer-file|--security-profile|--auth-mode|--admin-username|--admin-password|--admin-password-file|--data-root|--frontend-port|--backend-port|--qdrant-port|--hostname|--ocr-enabled|--connector-features-enabled)
       if [[ $# -lt 2 ]]; then
         echo "Missing value for $1" >&2
         exit 1
@@ -138,6 +184,8 @@ if [[ "${skip_configure}" != "true" ]]; then
 fi
 
 if [[ "${skip_deploy}" != "true" ]]; then
+  print_preflight_summary
+  confirm_preflight_summary
   run_phase "deploy" "${script_dir}/deploy.sh"
 fi
 

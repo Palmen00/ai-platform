@@ -25,10 +25,13 @@ class ConnectorIngestService:
             file_path=source_path,
             original_name=request.original_name,
             content_type=request.content_type,
+            source_connector_id=request.connector_id,
             source_provider=request.provider,
             source_uri=request.source_uri,
             source_container=request.container,
             source_last_modified_at=request.source_last_modified_at,
+            visibility=request.visibility,
+            access_usernames=request.access_usernames,
         )
         return ConnectorImportResult(
             document_id=document.id,

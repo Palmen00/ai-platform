@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "../../components/AppShell";
 import { siteConfig } from "../../config/site";
 import { ConnectorManager } from "../../features/connectors/components/ConnectorManager";
@@ -9,10 +10,16 @@ import { useConnectors } from "../../features/connectors/hooks/useConnectors";
 import {
   AuthStatusResponse,
   cleanupStorageTargets,
+  createUser,
+  CreateUserInput,
   getAuthStatus,
   getBackupExport,
+  getLogs,
+  getUsers,
   importBackup,
-  loginAdmin,
+  LogEvent,
+  LocalUserSummary,
+  loginUser,
   logoutAdmin,
   getModels,
   getRuntimeSettings,
@@ -20,12 +27,17 @@ import {
   BackupExportPayload,
   BackupImportResponse,
   CleanupTargetResult,
+  LogsResponse,
   ModelItem,
   RuntimeSettings,
   StorageUsageItem,
   SystemStatusResponse,
+  updateUser,
+  UpdateUserInput,
   updateRuntimeSettings,
 } from "../../lib/api";
+
+const AUTH_UPDATED_EVENT = "auth:updated";
 
 const initialRuntimeSettings: RuntimeSettings = {
   ollama_base_url: "",
@@ -41,19 +53,163 @@ const initialRuntimeSettings: RuntimeSettings = {
 type SettingsTab =
   | "overview"
   | "storage"
+  | "cleanup"
   | "runtime"
+  | "retrieval"
   | "connectors"
+  | "users"
   | "security"
-  | "debug"
+  | "audit"
+  | "backups"
+  | "logs"
   | "models";
 type StorageSort = "largest" | "smallest" | "name";
 type StorageFilter = "all" | "cleanable" | "persistent";
+type SettingsTabGroup = "Workspace" | "Access" | "Operations";
+type SettingsTabMeta = {
+  id: SettingsTab;
+  label: string;
+  description: string;
+  group: SettingsTabGroup;
+  shortLabel: string;
+};
+
+function resolveSettingsTab(value: string | null): SettingsTab | null {
+  if (!value) {
+    return null;
+  }
+
+  const matchingTab = SETTINGS_TABS.find((tab) => tab.id === value);
+  return matchingTab?.id ?? null;
+}
+
+const SETTINGS_TABS: SettingsTabMeta[] = [
+  {
+    id: "overview",
+    label: siteConfig.settings.tabs.overview,
+    shortLabel: "Status",
+    description:
+      "See health, dependencies, storage footprint, and overall app readiness.",
+    group: "Workspace",
+  },
+  {
+    id: "runtime",
+    label: siteConfig.settings.tabs.runtime,
+    shortLabel: "Services & models",
+    description:
+      "Point the app at Ollama and Qdrant, and choose the primary models for this environment.",
+    group: "Workspace",
+  },
+  {
+    id: "retrieval",
+    label: siteConfig.settings.tabs.retrieval,
+    shortLabel: "Chunking & search",
+    description:
+      "Tune retrieval depth, score threshold, and document chunking without mixing it with base runtime wiring.",
+    group: "Workspace",
+  },
+  {
+    id: "models",
+    label: siteConfig.settings.tabs.models,
+    shortLabel: "Installed models",
+    description:
+      "Inspect currently available models and what is installed in this environment.",
+    group: "Workspace",
+  },
+  {
+    id: "connectors",
+    label: siteConfig.settings.tabs.connectors,
+    shortLabel: "External sources",
+    description:
+      "Control synced sources, folder scope, default access, and sync behavior.",
+    group: "Access",
+  },
+  {
+    id: "users",
+    label: siteConfig.settings.tabs.users,
+    shortLabel: "Accounts",
+    description:
+      "Create local accounts, assign roles, and keep admin access tightly controlled.",
+    group: "Access",
+  },
+  {
+    id: "security",
+    label: siteConfig.settings.tabs.security,
+    shortLabel: "Posture & policy",
+    description:
+      "Review auth posture, safe mode, and what security controls are active in this environment.",
+    group: "Access",
+  },
+  {
+    id: "audit",
+    label: siteConfig.settings.tabs.audit,
+    shortLabel: "Sensitive activity",
+    description:
+      "Track logins, permission changes, connector actions, and other high-impact events.",
+    group: "Access",
+  },
+  {
+    id: "storage",
+    label: siteConfig.settings.tabs.storage,
+    shortLabel: "Usage & volume",
+    description:
+      "Review what is taking space locally across documents, vectors, and conversations.",
+    group: "Operations",
+  },
+  {
+    id: "cleanup",
+    label: siteConfig.settings.tabs.cleanup,
+    shortLabel: "Safe cleanup",
+    description:
+      "Clean regenerable areas without mixing destructive-looking actions into the storage overview.",
+    group: "Operations",
+  },
+  {
+    id: "backups",
+    label: siteConfig.settings.tabs.backups,
+    shortLabel: "Import & export",
+    description:
+      "Export a portable snapshot of settings and chats, or restore a previous state.",
+    group: "Operations",
+  },
+  {
+    id: "logs",
+    label: siteConfig.settings.tabs.logs,
+    shortLabel: "Backend events",
+    description:
+      "Inspect recent backend events and raw log lines without mixing them into backup workflows.",
+    group: "Operations",
+  },
+];
+
+const settingsPanelClass =
+  "rounded-[1.15rem] border border-slate-200/90 bg-white/95 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]";
+const settingsPanelCompactClass =
+  "rounded-[1.15rem] border border-slate-200/90 bg-white/95 px-5 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]";
+const settingsTileClass =
+  "rounded-[1rem] border border-slate-200 bg-white px-4 py-3";
+const settingsSubtlePanelClass =
+  "rounded-[1rem] border border-slate-200 bg-slate-50/85 p-4";
+const settingsInputClass =
+  "w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-slate-400";
+const settingsPrimaryButtonClass =
+  "rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300";
+const settingsSecondaryButtonClass =
+  "rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60";
 
 export default function SettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("overview");
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<SettingsTab>(
+    () => resolveSettingsTab(searchParams.get("tab")) ?? "overview"
+  );
+  const [settingsSearch, setSettingsSearch] = useState("");
   const [authStatus, setAuthStatus] = useState<AuthStatusResponse | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [authError, setAuthError] = useState("");
+  const [authInfoMessage, setAuthInfoMessage] = useState("");
+  const [username, setUsername] = useState("admin");
   const [adminPassword, setAdminPassword] = useState("");
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [systemStatus, setSystemStatus] = useState<SystemStatusResponse | null>(
@@ -77,6 +233,31 @@ export default function SettingsPage() {
   const [importMessage, setImportMessage] = useState("");
   const [isImporting, setIsImporting] = useState(false);
   const [selectedBackupFile, setSelectedBackupFile] = useState<File | null>(null);
+  const [users, setUsers] = useState<LocalUserSummary[]>([]);
+  const [usersError, setUsersError] = useState("");
+  const [usersStatusMessage, setUsersStatusMessage] = useState("");
+  const [isUsersLoading, setIsUsersLoading] = useState(false);
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+  const [savingUserId, setSavingUserId] = useState("");
+  const [newUser, setNewUser] = useState<CreateUserInput>({
+    username: "",
+    password: "",
+    role: "viewer",
+    enabled: true,
+  });
+  const [editingUserId, setEditingUserId] = useState("");
+  const [editingUserDraft, setEditingUserDraft] = useState<UpdateUserInput>({
+    username: "",
+    password: "",
+    role: "viewer",
+    enabled: true,
+  });
+  const [auditEvents, setAuditEvents] = useState<LogEvent[]>([]);
+  const [isAuditLoading, setIsAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState("");
+  const [logsPreview, setLogsPreview] = useState<LogsResponse | null>(null);
+  const [isLogsLoading, setIsLogsLoading] = useState(false);
+  const [logsError, setLogsError] = useState("");
   const {
     connectors,
     isLoading: areConnectorsLoading,
@@ -102,7 +283,66 @@ export default function SettingsPage() {
 
   const isAdminAuthRequired =
     !!authStatus?.auth_enabled && !!authStatus?.auth_configured;
-  const isAdminUnlocked = !isAdminAuthRequired || !!authStatus?.authenticated;
+  const isAuthenticated = !isAdminAuthRequired || !!authStatus?.authenticated;
+  const isAdminUnlocked =
+    !isAdminAuthRequired || authStatus?.role === "admin";
+  const enabledUsernames = users
+    .filter((user) => user.enabled)
+    .map((user) => user.username);
+  const normalizedSettingsSearch = settingsSearch.trim().toLowerCase();
+  const visibleTabs = SETTINGS_TABS.filter((tab) =>
+    !normalizedSettingsSearch
+      ? true
+      : [tab.label, tab.shortLabel, tab.description, tab.group]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSettingsSearch)
+  );
+  const activeTabMeta =
+    SETTINGS_TABS.find((tab) => tab.id === activeTab) ?? SETTINGS_TABS[0];
+  const tabsByGroup = (group: SettingsTabGroup) =>
+    visibleTabs.filter((tab) => tab.group === group);
+
+  useEffect(() => {
+    const requestedTab = resolveSettingsTab(searchParams.get("tab"));
+    if (!requestedTab || requestedTab === activeTab) {
+      return;
+    }
+
+    setActiveTab(requestedTab);
+  }, [activeTab, searchParams]);
+
+  const navigateToTab = useCallback(
+    (tabId: SettingsTab) => {
+      setActiveTab(tabId);
+
+      const params = new URLSearchParams(searchParams.toString());
+      params.set("tab", tabId);
+      const nextQuery = params.toString();
+      const nextUrl = nextQuery ? `${pathname}?${nextQuery}` : pathname;
+      router.replace(nextUrl, { scroll: false });
+    },
+    [pathname, router, searchParams]
+  );
+
+  async function loadUsers(force = false) {
+    if (!force && !isAdminUnlocked) {
+      setUsers([]);
+      return;
+    }
+
+    setIsUsersLoading(true);
+    setUsersError("");
+
+    try {
+      const payload = await getUsers();
+      setUsers(payload.users);
+    } catch {
+      setUsersError("Could not load users.");
+    } finally {
+      setIsUsersLoading(false);
+    }
+  }
 
   async function loadSystemOverview() {
     try {
@@ -119,6 +359,41 @@ export default function SettingsPage() {
       setModels(modelsResponse.models);
     } catch {
       setModels([]);
+    }
+  }
+
+  async function loadAuditEvents() {
+    setIsAuditLoading(true);
+    setAuditError("");
+
+    try {
+      const payload = await getLogs({
+        eventLimit: 20,
+        lineLimit: 10,
+        auditOnly: true,
+      });
+      setAuditEvents(payload.events);
+    } catch {
+      setAuditError(siteConfig.settings.securityAuditLoadError);
+    } finally {
+      setIsAuditLoading(false);
+    }
+  }
+
+  async function loadLogsPreview() {
+    setIsLogsLoading(true);
+    setLogsError("");
+
+    try {
+      const payload = await getLogs({
+        eventLimit: 8,
+        lineLimit: 16,
+      });
+      setLogsPreview(payload);
+    } catch {
+      setLogsError(siteConfig.logs.loadError);
+    } finally {
+      setIsLogsLoading(false);
     }
   }
 
@@ -171,7 +446,7 @@ export default function SettingsPage() {
         const shouldLoadProtectedRuntime =
           !nextAuthStatus?.auth_enabled ||
           !nextAuthStatus?.auth_configured ||
-          !!nextAuthStatus?.authenticated;
+          nextAuthStatus?.role === "admin";
         if (shouldLoadProtectedRuntime) {
           const settings = await getRuntimeSettings();
           if (isMounted) {
@@ -181,6 +456,24 @@ export default function SettingsPage() {
       } catch {
         if (isMounted) {
           setRuntimeError(siteConfig.settings.loadError);
+        }
+      }
+
+      try {
+        const shouldLoadUsers =
+          !nextAuthStatus?.auth_enabled ||
+          !nextAuthStatus?.auth_configured ||
+          nextAuthStatus?.role === "admin";
+        if (shouldLoadUsers) {
+          const payload = await getUsers();
+          if (isMounted) {
+            setUsers(payload.users);
+            setUsersError("");
+          }
+        }
+      } catch {
+        if (isMounted) {
+          setUsersError("Could not load users.");
         }
       }
     }
@@ -199,6 +492,32 @@ export default function SettingsPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (activeTab !== "audit" || !isAdminUnlocked) {
+      return;
+    }
+
+    void loadAuditEvents();
+  }, [activeTab, isAdminUnlocked]);
+
+  useEffect(() => {
+    if (activeTab !== "logs" || !isAdminUnlocked) {
+      return;
+    }
+
+    void loadLogsPreview();
+  }, [activeTab, isAdminUnlocked]);
+
+  useEffect(() => {
+    if (visibleTabs.length === 0) {
+      return;
+    }
+
+    if (!visibleTabs.some((tab) => tab.id === activeTab)) {
+      navigateToTab(visibleTabs[0].id);
+    }
+  }, [activeTab, navigateToTab, visibleTabs]);
+
   async function refreshProtectedState() {
     try {
       const nextRuntimeSettings = await getRuntimeSettings();
@@ -207,18 +526,24 @@ export default function SettingsPage() {
     } catch {
       setRuntimeError(siteConfig.settings.loadError);
     }
+
+    await loadUsers(true);
   }
 
   async function handleAdminLogin(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setAuthError("");
+    setAuthInfoMessage("");
     setIsLoggingIn(true);
 
     try {
-      const nextAuthStatus = await loginAdmin(adminPassword);
+      const nextAuthStatus = await loginUser(username, adminPassword);
       setAuthStatus(nextAuthStatus);
       setAdminPassword("");
-      await refreshProtectedState();
+      window.dispatchEvent(new Event(AUTH_UPDATED_EVENT));
+      if (!nextAuthStatus.auth_enabled || nextAuthStatus.role === "admin") {
+        await refreshProtectedState();
+      }
     } catch {
       setAuthError(siteConfig.settings.auth.loginError);
     } finally {
@@ -228,15 +553,89 @@ export default function SettingsPage() {
 
   async function handleAdminLogout() {
     await logoutAdmin();
-    setAuthStatus((current) =>
+    setAuthStatus((current) => {
+      const nextStatus =
       current
         ? {
             ...current,
             authenticated: false,
+            username: null,
+            role: null,
             session_expires_at: null,
           }
-        : current
-    );
+        : current;
+
+      return nextStatus;
+    });
+    setUsers([]);
+    setAuthInfoMessage("Settings were locked for this browser session.");
+    window.dispatchEvent(new Event(AUTH_UPDATED_EVENT));
+  }
+
+  function startEditingUser(user: LocalUserSummary) {
+    setEditingUserId(user.id);
+    setEditingUserDraft({
+      username: user.username,
+      password: "",
+      role: user.role,
+      enabled: user.enabled,
+    });
+    setUsersError("");
+    setUsersStatusMessage("");
+  }
+
+  function cancelEditingUser() {
+    setEditingUserId("");
+    setEditingUserDraft({
+      username: "",
+      password: "",
+      role: "viewer",
+      enabled: true,
+    });
+  }
+
+  async function handleCreateUser(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setUsersError("");
+    setUsersStatusMessage("");
+    setIsCreatingUser(true);
+
+    try {
+      await createUser(newUser);
+      setNewUser({
+        username: "",
+        password: "",
+        role: "viewer",
+        enabled: true,
+      });
+      setUsersStatusMessage("User created.");
+      await loadUsers();
+    } catch {
+      setUsersError("Could not create user.");
+    } finally {
+      setIsCreatingUser(false);
+    }
+  }
+
+  async function handleSaveUser(
+    event: React.FormEvent<HTMLFormElement>,
+    userId: string
+  ) {
+    event.preventDefault();
+    setUsersError("");
+    setUsersStatusMessage("");
+    setSavingUserId(userId);
+
+    try {
+      await updateUser(userId, editingUserDraft);
+      setUsersStatusMessage("User updated.");
+      cancelEditingUser();
+      await loadUsers();
+    } catch {
+      setUsersError("Could not update user.");
+    } finally {
+      setSavingUserId("");
+    }
   }
 
   function updateField<K extends keyof RuntimeSettings>(
@@ -357,16 +756,6 @@ export default function SettingsPage() {
     }
   }
 
-  const tabs: Array<{ id: SettingsTab; label: string }> = [
-    { id: "overview", label: siteConfig.settings.tabs.overview },
-    { id: "storage", label: siteConfig.settings.tabs.storage },
-    { id: "runtime", label: siteConfig.settings.tabs.runtime },
-    { id: "connectors", label: siteConfig.settings.tabs.connectors },
-    { id: "security", label: siteConfig.settings.tabs.security },
-    { id: "debug", label: siteConfig.settings.tabs.debug },
-    { id: "models", label: siteConfig.settings.tabs.models },
-  ];
-
   const statusLabels = siteConfig.settings.statusLabels;
   const overallStatusLabel = systemStatus
     ? statusLabels[
@@ -390,6 +779,22 @@ export default function SettingsPage() {
     })
     .sort((left, right) => compareStorageItems(left, right, storageSort));
   const cleanableStorageItems = storageItems.filter((item) => item.cleanable);
+  const auditErrorCount = auditEvents.filter((event) => event.status === "error").length;
+  const auditWarningCount = auditEvents.filter((event) => event.status === "warning").length;
+  const adminUserCount = users.filter((user) => user.role === "admin").length;
+  const enabledUserCount = users.filter((user) => user.enabled).length;
+  const totalConversationCount = users.reduce(
+    (sum, user) => sum + (user.stats?.conversation_count ?? 0),
+    0
+  );
+  const totalConversationStorageBytes = users.reduce(
+    (sum, user) => sum + (user.stats?.conversation_storage_bytes ?? 0),
+    0
+  );
+  const totalAccessibleDocumentStorageBytes = users.reduce(
+    (sum, user) => sum + (user.stats?.accessible_document_storage_bytes ?? 0),
+    0
+  );
 
   function formatBytes(sizeBytes: number) {
     if (sizeBytes < 1024) {
@@ -424,6 +829,14 @@ export default function SettingsPage() {
     return right.size_bytes - left.size_bytes;
   }
 
+  function renderAuditActor(event: LogEvent) {
+    if (event.actor_username) {
+      return `${event.actor_username}${event.actor_role ? ` (${event.actor_role})` : ""}`;
+    }
+
+    return event.category === "audit" ? "System action" : "System";
+  }
+
   if (isAuthLoading) {
     return (
       <AppShell contentClassName="p-4 md:p-6 xl:p-8">
@@ -434,7 +847,7 @@ export default function SettingsPage() {
     );
   }
 
-  if (isAdminAuthRequired && !isAdminUnlocked) {
+  if (isAdminAuthRequired && !isAuthenticated) {
     return (
       <AppShell contentClassName="p-4 md:p-6 xl:p-8">
         <div className="space-y-6">
@@ -454,21 +867,38 @@ export default function SettingsPage() {
             onSubmit={handleAdminLogin}
             className="max-w-xl rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8"
           >
-            {(authError || (!authStatus?.auth_configured && authStatus?.auth_enabled)) && (
+            {(authError ||
+              authInfoMessage ||
+              (!authStatus?.auth_configured && authStatus?.auth_enabled)) && (
               <div
                 className={`mb-5 rounded-2xl px-4 py-3 text-sm ${
                   authStatus?.auth_enabled && !authStatus?.auth_configured
                     ? "bg-amber-50 text-amber-800 ring-1 ring-amber-200"
+                    : authInfoMessage
+                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
                     : "bg-red-50 text-red-700 ring-1 ring-red-200"
                 }`}
               >
                 {authStatus?.auth_enabled && !authStatus?.auth_configured
                   ? siteConfig.settings.auth.configurationWarning
-                  : authError}
+                  : authInfoMessage || authError}
               </div>
             )}
 
             <label className="space-y-2">
+              <span className="text-sm font-medium text-slate-700">
+                Username
+              </span>
+              <input
+                type="text"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                placeholder="Enter username"
+                className={settingsInputClass}
+              />
+            </label>
+
+            <label className="mt-4 space-y-2">
               <span className="text-sm font-medium text-slate-700">
                 {siteConfig.settings.auth.passwordLabel}
               </span>
@@ -477,7 +907,7 @@ export default function SettingsPage() {
                 value={adminPassword}
                 onChange={(event) => setAdminPassword(event.target.value)}
                 placeholder={siteConfig.settings.auth.passwordPlaceholder}
-                className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                className={settingsInputClass}
               />
             </label>
 
@@ -485,7 +915,7 @@ export default function SettingsPage() {
               <button
                 type="submit"
                 disabled={isLoggingIn}
-                className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className={settingsPrimaryButtonClass}
               >
                 {isLoggingIn
                   ? siteConfig.settings.auth.loggingInButton
@@ -498,130 +928,242 @@ export default function SettingsPage() {
     );
   }
 
-  return (
-    <AppShell contentClassName="p-4 md:p-6 xl:p-8">
-      <div className="space-y-6">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8 md:py-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
-            {siteConfig.dashboard.eyebrow}
-          </p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-[2.2rem]">
-            {siteConfig.dashboard.title}
-          </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-            {siteConfig.dashboard.subtitle}
-          </p>
-          <div className="mt-4 flex flex-wrap items-center gap-2">
-            {authStatus?.authenticated && (
-              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">
-                {siteConfig.settings.auth.unlockedBadge}
-              </span>
-            )}
-            {authStatus?.safe_mode_enabled && (
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-amber-700">
-                {siteConfig.settings.auth.safeModeBadge}
-              </span>
-            )}
-            {authStatus?.authenticated && (
+  if (isAdminAuthRequired && authStatus?.authenticated && authStatus.role !== "admin") {
+    return (
+      <AppShell contentClassName="p-4 md:p-6 xl:p-8">
+        <div className="space-y-6">
+          <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8 md:py-8">
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+              {siteConfig.dashboard.eyebrow}
+            </p>
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-[2.2rem]">
+              Settings
+            </h2>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+              You are signed in as <span className="font-medium text-slate-900">{authStatus.username}</span>, but this area requires an admin account.
+            </p>
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Link
+                href="/chat"
+                className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              >
+                Go to chat
+              </Link>
               <button
                 type="button"
                 onClick={() => void handleAdminLogout()}
-                className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-700 transition hover:bg-slate-100"
+                className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
               >
-                {siteConfig.settings.auth.logoutButton}
+                Sign out
               </button>
-            )}
-          </div>
-          {authStatus?.authenticated && (
-            <p className="mt-3 text-sm text-slate-500">
-              {siteConfig.settings.auth.lockHelp}
-            </p>
-          )}
-          {authStatus?.auth_enabled && !authStatus?.auth_configured && (
-            <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
-              {siteConfig.settings.auth.configurationWarning}
             </div>
-          )}
-        </section>
+          </section>
+        </div>
+      </AppShell>
+    );
+  }
 
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-3 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur">
-          <div className="flex flex-wrap gap-2">
-            {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={
-                  activeTab === tab.id
-                    ? "rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white"
-                    : "rounded-2xl px-4 py-3 text-sm font-medium text-slate-600 transition hover:bg-slate-100"
+  return (
+    <AppShell contentClassName="p-3 md:p-4 xl:p-5">
+      <div className="grid gap-4 xl:grid-cols-[176px_minmax(0,1fr)]">
+        <aside className="xl:sticky xl:top-6 xl:self-start">
+          <div className="space-y-3 rounded-[1rem] border border-slate-200/90 bg-white/95 p-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                Admin console
+              </p>
+              <h2 className="mt-1 text-[1.4rem] font-semibold tracking-tight text-slate-950">
+                Settings
+              </h2>
+              <p className="mt-1 text-[12px] leading-5 text-slate-500">
+                Deep app controls.
+              </p>
+            </div>
+
+            <label className="block">
+              <span className="sr-only">Search settings</span>
+              <input
+                type="search"
+                value={settingsSearch}
+                onChange={(event) => setSettingsSearch(event.target.value)}
+                placeholder="Search settings..."
+                className="w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-[12px] text-slate-800 outline-none transition focus:border-slate-400"
+              />
+            </label>
+
+            {(["Workspace", "Access", "Operations"] as SettingsTabGroup[]).map(
+              (group) => {
+                const groupTabs = tabsByGroup(group);
+                if (groupTabs.length === 0) {
+                  return null;
                 }
-              >
-                {tab.label}
-              </button>
-            ))}
+
+                return (
+                  <section key={group} className="space-y-1.5">
+                    <p className="px-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                      {group}
+                    </p>
+                    <div className="space-y-0.5">
+                      {groupTabs.map((tab) => (
+                        <button
+                          key={tab.id}
+                          type="button"
+                          onClick={() => navigateToTab(tab.id)}
+                          className={
+                            activeTab === tab.id
+                              ? "w-full border-l-2 border-slate-950 px-2 py-1 text-left text-[13px] font-semibold text-slate-950"
+                              : "w-full border-l-2 border-transparent px-2 py-1 text-left text-[13px] text-slate-600 transition hover:text-slate-950"
+                          }
+                        >
+                          <div className="leading-5">{tab.label}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                );
+              }
+            )}
+
+            {visibleTabs.length === 0 && (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50/80 px-3 py-4 text-sm text-slate-500">
+                No settings matched your search yet.
+              </div>
+            )}
+
+            <div className="rounded-lg border border-slate-200 bg-slate-50/90 p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                Environment
+              </p>
+              <div className="mt-2 space-y-1.5 text-[12px] text-slate-600">
+                <div className="flex items-center justify-between gap-3">
+                  <span>Mode</span>
+                  <span className="font-medium text-slate-900">
+                    {systemStatus?.environment ?? "local"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>Admin session</span>
+                  <span className="font-medium text-slate-900">
+                    {authStatus?.authenticated
+                      ? authStatus.username || siteConfig.settings.auth.unlockedBadge
+                      : "Locked"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span>Safe mode</span>
+                  <span className="font-medium text-slate-900">
+                    {authStatus?.safe_mode_enabled ? "On" : "Off"}
+                  </span>
+                </div>
+              </div>
+            </div>
           </div>
-        </section>
+        </aside>
+
+        <div className="space-y-4">
+          <section className={settingsPanelCompactClass}>
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+                  {activeTabMeta.group}
+                </p>
+                <h2 className="mt-2 text-[1.9rem] font-semibold tracking-tight text-slate-950">
+                  {activeTabMeta.label}
+                </h2>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                  {activeTabMeta.description}
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2 lg:max-w-sm lg:justify-end">
+                <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700">
+                  {overallStatusLabel}
+                </span>
+                {authStatus?.authenticated && (
+                  <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                    {siteConfig.settings.auth.unlockedBadge}
+                  </span>
+                )}
+                {authStatus?.safe_mode_enabled && (
+                  <span className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-amber-700">
+                    {siteConfig.settings.auth.safeModeBadge}
+                  </span>
+                )}
+                {authStatus?.authenticated && (
+                  <button
+                    type="button"
+                    onClick={() => void handleAdminLogout()}
+                    className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-100"
+                  >
+                    {siteConfig.settings.auth.logoutButton}
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {authStatus?.authenticated && (
+              <p className="mt-4 text-sm text-slate-500">
+                {siteConfig.settings.auth.lockHelp}
+              </p>
+            )}
+            {authStatus?.auth_enabled && !authStatus?.auth_configured && (
+              <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2.5 text-sm text-amber-800 ring-1 ring-amber-200">
+                {siteConfig.settings.auth.configurationWarning}
+              </div>
+            )}
+          </section>
 
         {activeTab === "overview" && (
           <>
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
-              <h3 className="text-xl font-semibold tracking-tight text-slate-950">
-                {siteConfig.settings.overviewTitle}
-              </h3>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                {siteConfig.settings.overviewSubtitle}
-              </p>
-
-              {systemStatusError && (
-                <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
-                  {systemStatusError}
-                </div>
-              )}
-            </section>
+            {systemStatusError && (
+              <div className="rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-700 ring-1 ring-red-200">
+                {systemStatusError}
+              </div>
+            )}
 
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+              <div className={settingsTileClass}>
                 <p className="text-sm font-medium text-slate-500">
                   {siteConfig.settings.overviewCards.overallStatus}
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                   {overallStatusLabel}
                 </p>
-                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+                <p className="mt-1.5 text-[11px] uppercase tracking-[0.16em] text-slate-400">
                   {systemStatus?.environment ?? "loading"}
                 </p>
               </div>
 
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+              <div className={settingsTileClass}>
                 <p className="text-sm font-medium text-slate-500">
                   {siteConfig.settings.overviewCards.conversations}
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                   {systemStatus?.storage.conversations_total ?? 0}
                 </p>
               </div>
 
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+              <div className={settingsTileClass}>
                 <p className="text-sm font-medium text-slate-500">
                   {siteConfig.settings.overviewCards.processedDocuments}
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                   {systemStatus?.storage.processed_documents ?? 0}
                 </p>
               </div>
 
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+              <div className={settingsTileClass}>
                 <p className="text-sm font-medium text-slate-500">
                   {siteConfig.settings.overviewCards.indexedDocuments}
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                   {systemStatus?.storage.indexed_documents ?? 0}
                 </p>
               </div>
             </section>
 
             <section className="grid gap-4 xl:grid-cols-2">
-              <div className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
+              <div className={settingsPanelClass}>
                 <h3 className="text-xl font-semibold tracking-tight text-slate-950">
                   {siteConfig.settings.dependenciesTitle}
                 </h3>
@@ -654,7 +1196,7 @@ export default function SettingsPage() {
                     return (
                       <div
                         key={dependency.key}
-                        className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.05)]"
+                        className={settingsSubtlePanelClass}
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div>
@@ -725,7 +1267,7 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
+              <div className={settingsPanelClass}>
                 <h3 className="text-xl font-semibold tracking-tight text-slate-950">
                   {siteConfig.settings.storageTitle}
                 </h3>
@@ -734,48 +1276,48 @@ export default function SettingsPage() {
                 </p>
 
                 <div className="mt-5 grid gap-4 sm:grid-cols-2">
-                  <div className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5">
+                  <div className={settingsTileClass}>
                     <p className="text-sm font-medium text-slate-500">
                       {siteConfig.dashboard.cards.uploadedDocuments}
                     </p>
-                    <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                    <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                       {systemStatus?.storage.documents_total ?? 0}
                     </p>
                   </div>
 
-                  <div className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5">
+                  <div className={settingsTileClass}>
                     <p className="text-sm font-medium text-slate-500">
                       {siteConfig.settings.overviewCards.conversations}
                     </p>
-                    <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                    <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                       {systemStatus?.storage.conversations_total ?? 0}
                     </p>
                   </div>
 
-                  <div className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5">
+                  <div className={settingsTileClass}>
                     <p className="text-sm font-medium text-slate-500">
                       {siteConfig.settings.overviewCards.processedDocuments}
                     </p>
-                    <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                    <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                       {systemStatus?.storage.processed_documents ?? 0}
                     </p>
                   </div>
 
-                  <div className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5">
+                  <div className={settingsTileClass}>
                     <p className="text-sm font-medium text-slate-500">
                       {siteConfig.settings.overviewCards.failedDocuments}
                     </p>
-                    <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                    <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                       {systemStatus?.storage.failed_documents ?? 0}
                     </p>
                   </div>
                 </div>
 
-                <div className="mt-4 rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-5">
+                <div className={`mt-4 ${settingsSubtlePanelClass}`}>
                   <p className="text-sm font-medium text-slate-500">
                     {siteConfig.settings.overviewCards.totalLocalStorage}
                   </p>
-                  <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                  <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                     {formatBytes(systemStatus?.storage.total_size_bytes ?? 0)}
                   </p>
                 </div>
@@ -785,91 +1327,73 @@ export default function SettingsPage() {
         )}
 
         {activeTab === "storage" && (
-          <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
-            <div className="flex flex-col gap-4 border-b border-slate-200 pb-5 md:flex-row md:items-end md:justify-between">
+          <section className={settingsPanelClass}>
+            <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 md:flex-row md:items-end md:justify-between">
               <div>
-                <h3 className="text-xl font-semibold tracking-tight text-slate-950">
+                <h3 className="text-lg font-semibold tracking-tight text-slate-950">
                   {siteConfig.settings.storageUsageTitle}
                 </h3>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+                <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
                   {siteConfig.settings.storageUsageSubtitle}
                 </p>
               </div>
 
               <div className="flex flex-col gap-3 md:items-end">
-                {cleanableStorageItems.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void handleCleanup(
-                        cleanableStorageItems.map((item) => item.key),
-                        siteConfig.settings.storageControls.cleanupConfirmAll
-                      )
-                    }
-                    disabled={cleanupPendingKey !== null}
-                    className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                  >
-                    {cleanupPendingKey === "all"
-                      ? siteConfig.settings.storageControls.cleaningLabel
-                      : siteConfig.settings.storageControls.cleanAllLabel}
-                  </button>
-                )}
-
                 <div className="grid gap-3 md:grid-cols-2">
-                <label className="space-y-2">
-                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                    {siteConfig.settings.storageControls.sortLabel}
-                  </span>
-                  <select
-                    value={storageSort}
-                    onChange={(event) =>
-                      setStorageSort(event.target.value as StorageSort)
-                    }
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
-                  >
-                    <option value="largest">
-                      {siteConfig.settings.storageControls.sortLargest}
-                    </option>
-                    <option value="smallest">
-                      {siteConfig.settings.storageControls.sortSmallest}
-                    </option>
-                    <option value="name">
-                      {siteConfig.settings.storageControls.sortName}
-                    </option>
-                  </select>
-                </label>
+                  <label className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      {siteConfig.settings.storageControls.sortLabel}
+                    </span>
+                    <select
+                      value={storageSort}
+                      onChange={(event) =>
+                        setStorageSort(event.target.value as StorageSort)
+                      }
+                      className={settingsInputClass}
+                    >
+                      <option value="largest">
+                        {siteConfig.settings.storageControls.sortLargest}
+                      </option>
+                      <option value="smallest">
+                        {siteConfig.settings.storageControls.sortSmallest}
+                      </option>
+                      <option value="name">
+                        {siteConfig.settings.storageControls.sortName}
+                      </option>
+                    </select>
+                  </label>
 
-                <label className="space-y-2">
-                  <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
-                    {siteConfig.settings.storageControls.filterLabel}
-                  </span>
-                  <select
-                    value={storageFilter}
-                    onChange={(event) =>
-                      setStorageFilter(event.target.value as StorageFilter)
-                    }
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
-                  >
-                    <option value="all">
-                      {siteConfig.settings.storageControls.filterAll}
-                    </option>
-                    <option value="cleanable">
-                      {siteConfig.settings.storageControls.filterCleanable}
-                    </option>
-                    <option value="persistent">
-                      {siteConfig.settings.storageControls.filterPersistent}
-                    </option>
-                  </select>
-                </label>
+                  <label className="space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+                      {siteConfig.settings.storageControls.filterLabel}
+                    </span>
+                    <select
+                      value={storageFilter}
+                      onChange={(event) =>
+                        setStorageFilter(event.target.value as StorageFilter)
+                      }
+                      className={settingsInputClass}
+                    >
+                      <option value="all">
+                        {siteConfig.settings.storageControls.filterAll}
+                      </option>
+                      <option value="cleanable">
+                        {siteConfig.settings.storageControls.filterCleanable}
+                      </option>
+                      <option value="persistent">
+                        {siteConfig.settings.storageControls.filterPersistent}
+                      </option>
+                    </select>
+                  </label>
                 </div>
               </div>
             </div>
 
-            <div className="mt-5 rounded-[1.5rem] border border-slate-200 bg-slate-50/80 p-5">
+            <div className={`mt-4 ${settingsSubtlePanelClass}`}>
               <p className="text-sm font-medium text-slate-500">
                 {siteConfig.settings.overviewCards.totalLocalStorage}
               </p>
-              <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+              <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                 {formatBytes(systemStatus?.storage.total_size_bytes ?? 0)}
               </p>
               <p className="mt-2 text-sm leading-6 text-slate-500">
@@ -877,24 +1401,12 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            {(cleanupError || cleanupMessage) && (
-              <div
-                className={`mt-5 rounded-2xl px-4 py-3 text-sm ${
-                  cleanupError
-                    ? "bg-red-50 text-red-700 ring-1 ring-red-200"
-                    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                }`}
-              >
-                {cleanupError || cleanupMessage}
-              </div>
-            )}
-
             {filteredStorageItems.length > 0 ? (
-              <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
                 {filteredStorageItems.map((item) => (
                   <div
                     key={item.key}
-                    className="rounded-[1.5rem] border border-slate-200 bg-white/90 p-5 shadow-[0_12px_30px_rgba(15,23,42,0.05)]"
+                    className={settingsSubtlePanelClass}
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div>
@@ -912,23 +1424,6 @@ export default function SettingsPage() {
                         <p className="text-lg font-semibold tracking-tight text-slate-950">
                           {formatBytes(item.size_bytes)}
                         </p>
-                        {item.cleanable && (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void handleCleanup(
-                                [item.key],
-                                `${siteConfig.settings.storageControls.cleanupConfirmSingle}\n\n${item.label}`
-                              )
-                            }
-                            disabled={cleanupPendingKey !== null}
-                            className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
-                          >
-                            {cleanupPendingKey === item.key
-                              ? siteConfig.settings.storageControls.cleaningLabel
-                              : siteConfig.settings.storageControls.cleanLabel}
-                          </button>
-                        )}
                       </div>
                     </div>
 
@@ -949,16 +1444,109 @@ export default function SettingsPage() {
           </section>
         )}
 
+        {activeTab === "cleanup" && (
+          <section className={settingsPanelClass}>
+            <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                  Safe cleanup
+                </h3>
+                <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
+                  Remove regenerable data only. Uploaded source files, persistent vectors, and saved chats stay untouched.
+                </p>
+              </div>
+
+              {cleanableStorageItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    void handleCleanup(
+                      cleanableStorageItems.map((item) => item.key),
+                      siteConfig.settings.storageControls.cleanupConfirmAll
+                    )
+                  }
+                  disabled={cleanupPendingKey !== null}
+                  className={settingsPrimaryButtonClass}
+                >
+                  {cleanupPendingKey === "all"
+                    ? siteConfig.settings.storageControls.cleaningLabel
+                    : siteConfig.settings.storageControls.cleanAllLabel}
+                </button>
+              )}
+            </div>
+
+            {(cleanupError || cleanupMessage) && (
+              <div
+                className={`mt-4 rounded-xl px-3 py-2.5 text-sm ${
+                  cleanupError
+                    ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                }`}
+              >
+                {cleanupError || cleanupMessage}
+              </div>
+            )}
+
+            {cleanableStorageItems.length > 0 ? (
+              <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                {cleanableStorageItems.map((item) => (
+                  <div key={item.key} className={settingsSubtlePanelClass}>
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-semibold text-slate-900">
+                          {item.label}
+                        </p>
+                        <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-400">
+                          {statusLabels.cleanable}
+                        </p>
+                      </div>
+
+                      <div className="text-right">
+                        <p className="text-lg font-semibold tracking-tight text-slate-950">
+                          {formatBytes(item.size_bytes)}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void handleCleanup(
+                              [item.key],
+                              `${siteConfig.settings.storageControls.cleanupConfirmSingle}\n\n${item.label}`
+                            )
+                          }
+                          disabled={cleanupPendingKey !== null}
+                          className="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                        >
+                          {cleanupPendingKey === item.key
+                            ? siteConfig.settings.storageControls.cleaningLabel
+                            : siteConfig.settings.storageControls.cleanLabel}
+                        </button>
+                      </div>
+                    </div>
+
+                    <p className="mt-3 text-sm leading-6 text-slate-600">
+                      {item.description}
+                    </p>
+                    <p className="mt-3 break-all text-xs text-slate-400">
+                      {item.path}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
+                No safe cleanup targets are available right now.
+              </div>
+            )}
+          </section>
+        )}
+
         {activeTab === "runtime" && (
-          <form
-            onSubmit={handleRuntimeSave}
-            className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8"
-          >
-            <div className="mb-6">
-              <h3 className="text-xl font-semibold tracking-tight text-slate-950">
+          <form onSubmit={handleRuntimeSave} className={settingsPanelClass}>
+            <div className="mb-5">
+              <h3 className="text-lg font-semibold tracking-tight text-slate-950">
                 {siteConfig.settings.runtimeTitle}
               </h3>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
                 {siteConfig.settings.runtimeSubtitle}
               </p>
             </div>
@@ -985,7 +1573,7 @@ export default function SettingsPage() {
                   onChange={(event) =>
                     updateField("ollama_base_url", event.target.value)
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  className={settingsInputClass}
                 />
               </label>
 
@@ -998,7 +1586,7 @@ export default function SettingsPage() {
                   onChange={(event) =>
                     updateField("qdrant_url", event.target.value)
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  className={settingsInputClass}
                 />
               </label>
 
@@ -1011,7 +1599,7 @@ export default function SettingsPage() {
                   onChange={(event) =>
                     updateField("ollama_default_model", event.target.value)
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  className={settingsInputClass}
                 />
               </label>
 
@@ -1024,10 +1612,78 @@ export default function SettingsPage() {
                   onChange={(event) =>
                     updateField("ollama_embed_model", event.target.value)
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  className={settingsInputClass}
                 />
               </label>
 
+              <label className="space-y-2">
+                <span className="text-sm font-medium text-slate-700">
+                  Active wiring
+                </span>
+                <div className={`${settingsSubtlePanelClass} space-y-2 text-sm text-slate-600`}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Chat model</span>
+                    <span className="font-medium text-slate-900">
+                      {runtimeSettings.ollama_default_model || "Not set"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Embed model</span>
+                    <span className="font-medium text-slate-900">
+                      {runtimeSettings.ollama_embed_model || "Not set"}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <span>Qdrant</span>
+                    <span className="font-medium text-slate-900">
+                      {runtimeSettings.qdrant_url || "Not set"}
+                    </span>
+                  </div>
+                </div>
+              </label>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3 border-t border-slate-200 pt-5 md:flex-row md:items-center md:justify-between">
+              <p className="max-w-2xl text-sm text-slate-500">
+                {siteConfig.settings.helperText}
+              </p>
+              <button
+                type="submit"
+                disabled={isSavingRuntime}
+                className={settingsPrimaryButtonClass}
+              >
+                {isSavingRuntime
+                  ? siteConfig.settings.savingButton
+                  : siteConfig.settings.saveButton}
+              </button>
+            </div>
+          </form>
+        )}
+
+        {activeTab === "retrieval" && (
+          <form onSubmit={handleRuntimeSave} className={settingsPanelClass}>
+            <div className="mb-5">
+              <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                Retrieval and chunking
+              </h3>
+              <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
+                Tune how much context we pull in and how documents are split before indexing.
+              </p>
+            </div>
+
+            {(runtimeError || runtimeMessage) && (
+              <div
+                className={`mb-4 rounded-xl px-3 py-2.5 text-sm ${
+                  runtimeError
+                    ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                }`}
+              >
+                {runtimeError || runtimeMessage}
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-700">
                   {siteConfig.settings.fields.retrievalLimit}
@@ -1040,7 +1696,7 @@ export default function SettingsPage() {
                   onChange={(event) =>
                     updateField("retrieval_limit", Number(event.target.value))
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  className={settingsInputClass}
                 />
               </label>
 
@@ -1057,7 +1713,7 @@ export default function SettingsPage() {
                   onChange={(event) =>
                     updateField("retrieval_min_score", Number(event.target.value))
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  className={settingsInputClass}
                 />
               </label>
 
@@ -1073,11 +1729,11 @@ export default function SettingsPage() {
                   onChange={(event) =>
                     updateField("document_chunk_size", Number(event.target.value))
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  className={settingsInputClass}
                 />
               </label>
 
-              <label className="space-y-2 md:col-span-2">
+              <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-700">
                   {siteConfig.settings.fields.chunkOverlap}
                 </span>
@@ -1092,9 +1748,16 @@ export default function SettingsPage() {
                       Number(event.target.value)
                     )
                   }
-                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+                  className={settingsInputClass}
                 />
               </label>
+            </div>
+
+            <div className={`mt-4 ${settingsSubtlePanelClass}`}>
+              <p className="text-sm font-medium text-slate-500">What changes when you save</p>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                New retrieval requests use the updated limit and score threshold. New indexing runs use the updated chunk size and overlap.
+              </p>
             </div>
 
             <div className="mt-5 flex flex-col gap-3 border-t border-slate-200 pt-5 md:flex-row md:items-center md:justify-between">
@@ -1104,7 +1767,7 @@ export default function SettingsPage() {
               <button
                 type="submit"
                 disabled={isSavingRuntime}
-                className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className={settingsPrimaryButtonClass}
               >
                 {isSavingRuntime
                   ? siteConfig.settings.savingButton
@@ -1115,84 +1778,75 @@ export default function SettingsPage() {
         )}
 
         {activeTab === "security" && (
-          <div className="space-y-6">
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
-              <h3 className="text-xl font-semibold tracking-tight text-slate-950">
-                {siteConfig.settings.securityTitle}
-              </h3>
-              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">
-                {siteConfig.settings.securitySubtitle}
-              </p>
-            </section>
-
+          <div className="space-y-4">
             <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+              <div className={settingsTileClass}>
                 <p className="text-sm font-medium text-slate-500">
                   {siteConfig.settings.securityCards.adminAuth}
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                   {authStatus?.auth_enabled
                     ? siteConfig.settings.securityValues.enabled
                     : siteConfig.settings.securityValues.disabled}
                 </p>
-                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+                <p className="mt-1.5 text-[11px] uppercase tracking-[0.16em] text-slate-400">
                   {authStatus?.auth_configured
                     ? siteConfig.settings.securityValues.configured
                     : siteConfig.settings.securityValues.notConfigured}
                 </p>
               </div>
 
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+              <div className={settingsTileClass}>
                 <p className="text-sm font-medium text-slate-500">
                   {siteConfig.settings.securityCards.safeMode}
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                   {authStatus?.safe_mode_enabled
                     ? siteConfig.settings.securityValues.enabled
                     : siteConfig.settings.securityValues.disabled}
                 </p>
-                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+                <p className="mt-1.5 text-[11px] uppercase tracking-[0.16em] text-slate-400">
                   {authStatus?.authenticated
                     ? siteConfig.settings.securityValues.unlocked
                     : siteConfig.settings.securityValues.locked}
                 </p>
               </div>
 
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+              <div className={settingsTileClass}>
                 <p className="text-sm font-medium text-slate-500">
                   {siteConfig.settings.securityCards.protectedAreas}
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                   {siteConfig.settings.securityProtectedAreas.length}
                 </p>
-                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+                <p className="mt-1.5 text-[11px] uppercase tracking-[0.16em] text-slate-400">
                   Active protections
                 </p>
               </div>
 
-              <div className="rounded-[1.75rem] border border-slate-200 bg-white/90 p-5 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+              <div className={settingsTileClass}>
                 <p className="text-sm font-medium text-slate-500">
                   {siteConfig.settings.securityCards.futureControls}
                 </p>
-                <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
                   {siteConfig.settings.securityFutureControls.length}
                 </p>
-                <p className="mt-2 text-xs uppercase tracking-[0.18em] text-slate-400">
+                <p className="mt-1.5 text-[11px] uppercase tracking-[0.16em] text-slate-400">
                   Planned next
                 </p>
               </div>
             </section>
 
             <section className="grid gap-4 xl:grid-cols-2">
-              <div className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
+              <div className={settingsPanelClass}>
                 <h4 className="text-lg font-semibold tracking-tight text-slate-950">
                   {siteConfig.settings.securityCards.protectedAreas}
                 </h4>
-                <div className="mt-5 space-y-3">
+                <div className="mt-4 space-y-2">
                   {siteConfig.settings.securityProtectedAreas.map((item) => (
                     <div
                       key={item}
-                      className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-3 text-sm text-slate-700"
+                      className="border-b border-slate-200/80 pb-2 text-sm text-slate-700 last:border-b-0 last:pb-0"
                     >
                       {item}
                     </div>
@@ -1200,15 +1854,15 @@ export default function SettingsPage() {
                 </div>
               </div>
 
-              <div className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
+              <div className={settingsPanelClass}>
                 <h4 className="text-lg font-semibold tracking-tight text-slate-950">
                   {siteConfig.settings.securityCards.futureControls}
                 </h4>
-                <div className="mt-5 space-y-3">
+                <div className="mt-4 space-y-2">
                   {siteConfig.settings.securityFutureControls.map((item) => (
                     <div
                       key={item}
-                      className="rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 px-4 py-3 text-sm text-slate-700"
+                      className="border-b border-dashed border-slate-300/90 pb-2 text-sm text-slate-700 last:border-b-0 last:pb-0"
                     >
                       {item}
                     </div>
@@ -1218,18 +1872,18 @@ export default function SettingsPage() {
             </section>
 
             <section className="grid gap-4 xl:grid-cols-2">
-              <div className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
+              <div className={settingsPanelClass}>
                 <h4 className="text-lg font-semibold tracking-tight text-slate-950">
                   {siteConfig.settings.securityCards.howItWorks}
                 </h4>
-                <div className="mt-5 space-y-3 text-sm leading-6 text-slate-700">
+                <div className="mt-4 space-y-2 text-sm leading-6 text-slate-700">
                   <p>{siteConfig.settings.auth.lockHelp}</p>
                   <p>{siteConfig.settings.auth.envToggleHelp}</p>
                 </div>
               </div>
 
               <div
-                className={`rounded-[2rem] p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8 ${
+                className={`${settingsPanelClass} ${
                   authStatus?.auth_enabled
                     ? "border border-emerald-200 bg-emerald-50/90"
                     : "border border-amber-200 bg-amber-50/90"
@@ -1248,10 +1902,10 @@ export default function SettingsPage() {
               </div>
 
               <div
-                className={`rounded-[2rem] p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8 ${
+                className={`${settingsPanelClass} ${
                   authStatus?.safe_mode_enabled
                     ? "border border-emerald-200 bg-emerald-50/90"
-                    : "border border-slate-200/80 bg-white/88"
+                    : "border border-slate-200/90 bg-white/95"
                 }`}
               >
                 <h4 className="text-lg font-semibold tracking-tight text-slate-950">
@@ -1267,9 +1921,428 @@ export default function SettingsPage() {
           </div>
         )}
 
+        {activeTab === "audit" && (
+          <div className="space-y-4">
+            <section className="grid gap-4 md:grid-cols-3">
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">Events loaded</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {auditEvents.length}
+                </p>
+              </div>
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">Warnings</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {auditWarningCount}
+                </p>
+              </div>
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">Errors</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {auditErrorCount}
+                </p>
+              </div>
+            </section>
+
+            <section className={settingsPanelClass}>
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <h4 className="text-lg font-semibold tracking-tight text-slate-950">
+                    {siteConfig.settings.securityAuditTitle}
+                  </h4>
+                  <p className="mt-1.5 max-w-3xl text-sm leading-6 text-slate-500">
+                    {siteConfig.settings.securityAuditSubtitle}
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void loadAuditEvents()}
+                    disabled={isAuditLoading}
+                    className={settingsSecondaryButtonClass}
+                  >
+                    {isAuditLoading
+                      ? "Refreshing..."
+                      : siteConfig.settings.securityAuditRefreshLabel}
+                  </button>
+                  <Link href="/logs" className={settingsSecondaryButtonClass}>
+                    {siteConfig.settings.securityAuditOpenLogsLabel}
+                  </Link>
+                </div>
+              </div>
+
+              {auditError && (
+                <div className="mt-4 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-700 ring-1 ring-red-200">
+                  {auditError}
+                </div>
+              )}
+
+              <div className="mt-4 space-y-2">
+                {auditEvents.map((event) => (
+                  <div
+                    key={`${event.timestamp}-${event.event_type}-${event.message}`}
+                    className="border-b border-slate-200/80 pb-3 last:border-b-0 last:pb-0"
+                  >
+                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-950">
+                            {event.message}
+                          </p>
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] ${
+                              event.status === "error"
+                                ? "bg-red-100 text-red-700"
+                                : event.status === "warning"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : "bg-emerald-100 text-emerald-700"
+                            }`}
+                          >
+                            {event.status}
+                          </span>
+                        </div>
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                          {event.event_type}
+                        </p>
+                        <p className="text-sm text-slate-600">
+                          {renderAuditActor(event)}
+                        </p>
+                      </div>
+                      <p className="text-sm text-slate-500">
+                        {new Date(event.timestamp).toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+
+                {!isAuditLoading && auditEvents.length === 0 && !auditError && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm text-slate-500">
+                    {siteConfig.settings.securityAuditEmpty}
+                  </div>
+                )}
+              </div>
+            </section>
+          </div>
+        )}
+
+        {activeTab === "users" && (
+          <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+            <section className={settingsPanelClass}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h4 className="text-lg font-semibold tracking-tight text-slate-950">
+                    Local users
+                  </h4>
+                  <p className="mt-1.5 text-sm leading-6 text-slate-500">
+                    Create admin and viewer accounts for this workspace. Admins control settings and connectors. Viewers use chat and knowledge.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadUsers()}
+                  disabled={isUsersLoading}
+                  className={settingsSecondaryButtonClass}
+                >
+                  {isUsersLoading ? "Refreshing..." : "Refresh"}
+                </button>
+              </div>
+
+              {(usersError || usersStatusMessage) && (
+                <div
+                  className={`mt-4 rounded-xl px-3 py-2.5 text-sm ${
+                    usersError
+                      ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                      : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                  }`}
+                >
+                  {usersError || usersStatusMessage}
+                </div>
+              )}
+
+              <div className="mt-4 space-y-3">
+                {users.map((user) => {
+                  const isEditing = editingUserId === user.id;
+                  const isSaving = savingUserId === user.id;
+
+                  return (
+                    <div key={user.id} className={settingsSubtlePanelClass}>
+                      {isEditing ? (
+                        <form
+                          onSubmit={(event) => void handleSaveUser(event, user.id)}
+                          className="space-y-3"
+                        >
+                          <div className="grid gap-3 md:grid-cols-2">
+                            <label className="space-y-1.5">
+                              <span className="text-sm font-medium text-slate-700">
+                                Username
+                              </span>
+                              <input
+                                type="text"
+                                value={editingUserDraft.username ?? ""}
+                                onChange={(event) =>
+                                  setEditingUserDraft((current) => ({
+                                    ...current,
+                                    username: event.target.value,
+                                  }))
+                                }
+                                className={settingsInputClass}
+                              />
+                            </label>
+
+                            <label className="space-y-1.5">
+                              <span className="text-sm font-medium text-slate-700">
+                                Role
+                              </span>
+                              <select
+                                value={editingUserDraft.role ?? "viewer"}
+                                onChange={(event) =>
+                                  setEditingUserDraft((current) => ({
+                                    ...current,
+                                    role: event.target.value as "admin" | "viewer",
+                                  }))
+                                }
+                                className={settingsInputClass}
+                              >
+                                <option value="viewer">Viewer</option>
+                                <option value="admin">Admin</option>
+                              </select>
+                            </label>
+                          </div>
+
+                          <label className="space-y-1.5">
+                            <span className="text-sm font-medium text-slate-700">
+                              New password
+                            </span>
+                            <input
+                              type="password"
+                              value={editingUserDraft.password ?? ""}
+                              onChange={(event) =>
+                                setEditingUserDraft((current) => ({
+                                  ...current,
+                                  password: event.target.value,
+                                }))
+                              }
+                              placeholder="Leave blank to keep the current password"
+                              className={settingsInputClass}
+                            />
+                          </label>
+
+                          <label className="flex items-center gap-3 text-sm text-slate-700">
+                            <input
+                              type="checkbox"
+                              checked={editingUserDraft.enabled ?? true}
+                              onChange={(event) =>
+                                setEditingUserDraft((current) => ({
+                                  ...current,
+                                  enabled: event.target.checked,
+                                }))
+                              }
+                              className="h-4 w-4 rounded border-slate-300 text-slate-950 focus:ring-slate-400"
+                            />
+                            User enabled
+                          </label>
+
+                          <div className="flex flex-wrap gap-2">
+                            <button
+                              type="submit"
+                              disabled={isSaving}
+                              className={settingsPrimaryButtonClass}
+                            >
+                              {isSaving ? "Saving..." : "Save user"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditingUser}
+                              disabled={isSaving}
+                              className={settingsSecondaryButtonClass}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="text-sm font-semibold text-slate-950">
+                                {user.username}
+                              </p>
+                              <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-600">
+                                {user.role}
+                              </span>
+                              {!user.enabled && (
+                                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-amber-700">
+                                  disabled
+                                </span>
+                              )}
+                            </div>
+                            <p className="mt-1.5 text-sm text-slate-500">
+                              Last login: {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : "Never"}
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                              <span>Chats {user.stats?.conversation_count ?? 0}</span>
+                              <span>Messages {user.stats?.message_count ?? 0}</span>
+                              <span>Chat storage {formatBytes(user.stats?.conversation_storage_bytes ?? 0)}</span>
+                              <span>Visible docs {user.stats?.accessible_document_count ?? 0}</span>
+                              <span>Doc access {formatBytes(user.stats?.accessible_document_storage_bytes ?? 0)}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => startEditingUser(user)}
+                            className={settingsSecondaryButtonClass}
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {!isUsersLoading && users.length === 0 && (
+                  <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm text-slate-500">
+                    No local users found yet.
+                  </div>
+                )}
+              </div>
+            </section>
+
+            <div className="space-y-4">
+              <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+                <div className={settingsTileClass}>
+                  <p className="text-sm font-medium text-slate-500">Total users</p>
+                  <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                    {users.length}
+                  </p>
+                </div>
+                <div className={settingsTileClass}>
+                  <p className="text-sm font-medium text-slate-500">Enabled users</p>
+                  <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                    {enabledUserCount}
+                  </p>
+                </div>
+                <div className={settingsTileClass}>
+                  <p className="text-sm font-medium text-slate-500">Admins</p>
+                  <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                    {adminUserCount}
+                  </p>
+                </div>
+                <div className={settingsTileClass}>
+                  <p className="text-sm font-medium text-slate-500">Saved chats</p>
+                  <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                    {totalConversationCount}
+                  </p>
+                </div>
+                <div className={settingsTileClass}>
+                  <p className="text-sm font-medium text-slate-500">Chat storage</p>
+                  <p className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                    {formatBytes(totalConversationStorageBytes)}
+                  </p>
+                </div>
+                <div className={settingsTileClass}>
+                  <p className="text-sm font-medium text-slate-500">Accessible docs</p>
+                  <p className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                    {formatBytes(totalAccessibleDocumentStorageBytes)}
+                  </p>
+                </div>
+              </section>
+
+              <section className={settingsPanelClass}>
+                <h4 className="text-lg font-semibold tracking-tight text-slate-950">
+                  Create user
+                </h4>
+                <p className="mt-1.5 text-sm leading-6 text-slate-500">
+                  Start with viewers for everyday work, and keep admin accounts limited.
+                </p>
+
+                <form onSubmit={handleCreateUser} className="mt-4 space-y-3">
+                  <label className="space-y-1.5">
+                    <span className="text-sm font-medium text-slate-700">
+                      Username
+                    </span>
+                    <input
+                      type="text"
+                      value={newUser.username}
+                      onChange={(event) =>
+                        setNewUser((current) => ({
+                          ...current,
+                          username: event.target.value,
+                        }))
+                      }
+                      className={settingsInputClass}
+                    />
+                  </label>
+
+                  <label className="space-y-1.5">
+                    <span className="text-sm font-medium text-slate-700">
+                      Password
+                    </span>
+                    <input
+                      type="password"
+                      value={newUser.password}
+                      onChange={(event) =>
+                        setNewUser((current) => ({
+                          ...current,
+                          password: event.target.value,
+                        }))
+                      }
+                      className={settingsInputClass}
+                    />
+                  </label>
+
+                  <label className="space-y-1.5">
+                    <span className="text-sm font-medium text-slate-700">
+                      Role
+                    </span>
+                    <select
+                      value={newUser.role ?? "viewer"}
+                      onChange={(event) =>
+                        setNewUser((current) => ({
+                          ...current,
+                          role: event.target.value as "admin" | "viewer",
+                        }))
+                      }
+                      className={settingsInputClass}
+                    >
+                      <option value="viewer">Viewer</option>
+                      <option value="admin">Admin</option>
+                    </select>
+                  </label>
+
+                  <label className="flex items-center gap-3 text-sm text-slate-700">
+                    <input
+                      type="checkbox"
+                      checked={newUser.enabled ?? true}
+                      onChange={(event) =>
+                        setNewUser((current) => ({
+                          ...current,
+                          enabled: event.target.checked,
+                        }))
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-slate-950 focus:ring-slate-400"
+                    />
+                    User enabled
+                  </label>
+
+                  <button
+                    type="submit"
+                    disabled={isCreatingUser}
+                    className={`w-full ${settingsPrimaryButtonClass}`}
+                  >
+                    {isCreatingUser ? "Creating..." : "Create user"}
+                  </button>
+                </form>
+              </section>
+            </div>
+          </div>
+        )}
+
         {activeTab === "connectors" && (
           <ConnectorManager
             connectors={connectors}
+            availableUsernames={enabledUsernames}
             isLoading={areConnectorsLoading}
             isRefreshing={areConnectorsRefreshing}
             isCreating={isCreatingConnector}
@@ -1297,118 +2370,229 @@ export default function SettingsPage() {
           />
         )}
 
-        {activeTab === "debug" && (
-          <div className="grid gap-4 xl:grid-cols-3">
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
-              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold tracking-tight text-slate-950">
-                    {siteConfig.settings.toolsTitle}
-                  </h3>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                    {siteConfig.settings.toolsSubtitle}
-                  </p>
-                </div>
-
-                <Link
-                  href="/logs"
-                  className="inline-flex rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
-                >
-                  {siteConfig.settings.openLogsLabel}
-                </Link>
+        {activeTab === "backups" && (
+          <div className="space-y-4">
+            <section className="grid gap-4 md:grid-cols-2">
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">Backup export</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  Ready
+                </p>
+                <p className="mt-1.5 text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                  Portable snapshot
+                </p>
+              </div>
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">Restore file</p>
+                <p className="mt-2 text-sm font-semibold tracking-tight text-slate-950">
+                  {selectedBackupFile ? selectedBackupFile.name : "No file selected"}
+                </p>
               </div>
             </section>
 
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
-              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-                <div>
-                  <h3 className="text-xl font-semibold tracking-tight text-slate-950">
-                    {siteConfig.settings.exportTitle}
-                  </h3>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                    {siteConfig.settings.exportSubtitle}
-                  </p>
-                </div>
+            <section className="grid gap-4 xl:grid-cols-2">
+              <section className={settingsPanelClass}>
+                <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                      {siteConfig.settings.exportTitle}
+                    </h3>
+                    <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
+                      {siteConfig.settings.exportSubtitle}
+                    </p>
+                  </div>
 
-                <button
-                  type="button"
-                  onClick={() => void handleExportBackup()}
-                  disabled={isExporting}
-                  className="inline-flex rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {isExporting
-                    ? siteConfig.settings.exportingButton
-                    : siteConfig.settings.exportButton}
-                </button>
-              </div>
-
-              {exportError && (
-                <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
-                  {exportError}
-                </div>
-              )}
-            </section>
-
-            <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8">
-              <div className="flex flex-col gap-4">
-                <div>
-                  <h3 className="text-xl font-semibold tracking-tight text-slate-950">
-                    {siteConfig.settings.importTitle}
-                  </h3>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-                    {siteConfig.settings.importSubtitle}
-                  </p>
-                </div>
-
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                  {siteConfig.settings.importWarning}
-                </div>
-
-                <div className="space-y-3">
-                  <label className="inline-flex cursor-pointer rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100">
-                    <input
-                      type="file"
-                      accept="application/json"
-                      className="hidden"
-                      onChange={(event) =>
-                        setSelectedBackupFile(
-                          event.target.files?.[0] ?? null
-                        )
-                      }
-                    />
-                    {siteConfig.settings.importFileButton}
-                  </label>
-
-                  <p className="text-sm text-slate-500">
-                    {selectedBackupFile
-                      ? selectedBackupFile.name
-                      : siteConfig.settings.importNoFileLabel}
-                  </p>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => void handleImportBackup()}
-                  disabled={isImporting}
-                  className="inline-flex rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
-                >
-                  {isImporting
-                    ? siteConfig.settings.importingButton
-                    : siteConfig.settings.importButton}
-                </button>
-
-                {(importError || importMessage) && (
-                  <div
-                    className={`rounded-2xl px-4 py-3 text-sm ${
-                      importError
-                        ? "bg-red-50 text-red-700 ring-1 ring-red-200"
-                        : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
-                    }`}
+                  <button
+                    type="button"
+                    onClick={() => void handleExportBackup()}
+                    disabled={isExporting}
+                    className={settingsPrimaryButtonClass}
                   >
-                    {importError || importMessage}
+                    {isExporting
+                      ? siteConfig.settings.exportingButton
+                      : siteConfig.settings.exportButton}
+                  </button>
+                </div>
+
+                {exportError && (
+                  <div className="mt-4 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-700 ring-1 ring-red-200">
+                    {exportError}
                   </div>
                 )}
+              </section>
+
+              <section className={settingsPanelClass}>
+                <div className="flex flex-col gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                      {siteConfig.settings.importTitle}
+                    </h3>
+                    <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
+                      {siteConfig.settings.importSubtitle}
+                    </p>
+                  </div>
+
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-800">
+                    {siteConfig.settings.importWarning}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className={`inline-flex cursor-pointer ${settingsSecondaryButtonClass}`}>
+                      <input
+                        type="file"
+                        accept="application/json"
+                        className="hidden"
+                        onChange={(event) =>
+                          setSelectedBackupFile(
+                            event.target.files?.[0] ?? null
+                          )
+                        }
+                      />
+                      {siteConfig.settings.importFileButton}
+                    </label>
+
+                    <p className="text-sm text-slate-500">
+                      {selectedBackupFile
+                        ? selectedBackupFile.name
+                        : siteConfig.settings.importNoFileLabel}
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleImportBackup()}
+                    disabled={isImporting}
+                    className={settingsPrimaryButtonClass}
+                  >
+                    {isImporting
+                      ? siteConfig.settings.importingButton
+                      : siteConfig.settings.importButton}
+                  </button>
+
+                  {(importError || importMessage) && (
+                    <div
+                      className={`rounded-xl px-3 py-2.5 text-sm ${
+                        importError
+                          ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                          : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                      }`}
+                    >
+                      {importError || importMessage}
+                    </div>
+                  )}
+                </div>
+              </section>
+            </section>
+          </div>
+        )}
+
+        {activeTab === "logs" && (
+          <div className="space-y-4">
+            <section className="grid gap-4 md:grid-cols-3">
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">Event preview</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {logsPreview?.events.length ?? 0}
+                </p>
               </div>
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">Raw lines</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {logsPreview?.raw_lines.length ?? 0}
+                </p>
+              </div>
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">Full viewer</p>
+                <div className="mt-2">
+                  <Link href="/logs" className={settingsSecondaryButtonClass}>
+                    {siteConfig.settings.openLogsLabel}
+                  </Link>
+                </div>
+              </div>
+            </section>
+
+            <section className="grid gap-4 xl:grid-cols-2">
+              <section className={settingsPanelClass}>
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                      Recent events
+                    </h3>
+                    <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
+                      Quick preview of the latest backend activity without leaving settings.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadLogsPreview()}
+                    disabled={isLogsLoading}
+                    className={settingsSecondaryButtonClass}
+                  >
+                    {isLogsLoading ? "Refreshing..." : siteConfig.logs.refreshButton}
+                  </button>
+                </div>
+
+                {logsError && (
+                  <div className="mt-4 rounded-xl bg-red-50 px-3 py-2.5 text-sm text-red-700 ring-1 ring-red-200">
+                    {logsError}
+                  </div>
+                )}
+
+                <div className="mt-4 space-y-2">
+                  {logsPreview?.events.map((event) => (
+                    <div
+                      key={`${event.timestamp}-${event.event_type}-${event.message}`}
+                      className="border-b border-slate-200/80 pb-3 last:border-b-0 last:pb-0"
+                    >
+                      <div className="flex flex-col gap-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="text-sm font-semibold text-slate-950">
+                            {event.message}
+                          </p>
+                          <span className="text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                            {event.status}
+                          </span>
+                        </div>
+                        <p className="text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                          {event.event_type}
+                        </p>
+                        <p className="text-sm text-slate-500">
+                          {new Date(event.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+
+                  {!isLogsLoading && !logsError && (logsPreview?.events.length ?? 0) === 0 && (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-3 text-sm text-slate-500">
+                      {siteConfig.logs.emptyEvents}
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              <section className={settingsPanelClass}>
+                <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                  Raw backend log
+                </h3>
+                <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
+                  Short preview of backend log lines. Use the full logs page when you need filtering or downloads.
+                </p>
+
+                <div className="mt-4 space-y-2 rounded-lg border border-slate-200 bg-slate-50/85 p-3 font-mono text-xs text-slate-700">
+                  {logsPreview?.raw_lines.map((line, index) => (
+                    <div key={`${index}-${line}`} className="border-b border-slate-200/80 pb-2 last:border-b-0 last:pb-0">
+                      {line}
+                    </div>
+                  ))}
+
+                  {!isLogsLoading && !logsError && (logsPreview?.raw_lines.length ?? 0) === 0 && (
+                    <div className="text-sm font-sans text-slate-500">
+                      {siteConfig.logs.emptyRaw}
+                    </div>
+                  )}
+                </div>
+              </section>
             </section>
           </div>
         )}
@@ -1468,6 +2652,7 @@ export default function SettingsPage() {
             </div>
           </section>
         )}
+        </div>
       </div>
     </AppShell>
   );
