@@ -38,6 +38,9 @@ class ConnectorDispatcherService:
     def browse(self, connector: ConnectorManifest) -> ConnectorBrowseResponse:
         provider = (connector.provider or "").strip().lower()
 
+        if self.sharepoint.supports(connector):
+            return self.sharepoint.browse(connector)
+
         if self.google_drive.supports(connector):
             return self.google_drive.browse(connector)
 

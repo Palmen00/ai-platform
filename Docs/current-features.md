@@ -84,6 +84,7 @@
 - Synthetic business-document eval suite across invoices, contracts, policies, quotes, and incident reports
 - Synthetic SharePoint-style Office and code suite now goes `15/15`, including direct content questions for `docx`, `xlsx`, and `pptx`
 - Connector routing now supports both SharePoint and Google Drive as named providers behind the same `/connectors/{id}/sync` contract, while local/manual mode remains the easiest way to prototype either provider before live credentials are available
+- The SharePoint mock connector path has now also been verified live on the deployed server across browse, preview sync, real sync, document preview, and chat grounding for `docx`, `xlsx`, `pptx`, and scanned `pdf`
 - Coverage now also includes password-cracking document lookup and similar-theme checks when those documents exist locally
 - Local preflight script for setup and dependency validation
 - Local prototype comparison scripts now exist for `Unstructured` chunking/partitioning and `GLiNER` entity extraction so we can evaluate external open source components before adoption

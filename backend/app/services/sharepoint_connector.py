@@ -8,6 +8,8 @@ from tempfile import TemporaryDirectory
 import httpx
 
 from app.config import settings
+from app.schemas.connector import ConnectorBrowseResponse
+from app.schemas.connector import ConnectorFolderOption
 from app.schemas.connector import ConnectorManifest
 from app.schemas.connector import ConnectorSyncResponse
 from app.schemas.connector import ConnectorSyncResult
@@ -41,6 +43,17 @@ class SharePointConnectorService:
             return self.local_sync.sync_local_connector(connector, dry_run=dry_run)
         if auth_mode in {"graph", "graph_client_credentials", "client_credentials"}:
             return self._sync_graph_connector(connector, dry_run=dry_run)
+
+        raise ValueError(
+            f"Unsupported SharePoint auth_mode '{connector.auth_mode}'."
+        )
+
+    def browse(self, connector: ConnectorManifest) -> ConnectorBrowseResponse:
+        auth_mode = (connector.auth_mode or "manual").strip().lower()
+        if auth_mode in {"mock", "manual", "local"} and connector.root_path:
+            return self.local_sync.browse_local_connector(connector)
+        if auth_mode in {"graph", "graph_client_credentials", "client_credentials"}:
+            return self._browse_graph_connector(connector)
 
         raise ValueError(
             f"Unsupported SharePoint auth_mode '{connector.auth_mode}'."
@@ -164,6 +177,77 @@ class SharePointConnectorService:
             updated_count=updated_count,
             skipped_count=skipped_count,
             results=results,
+        )
+
+    def _browse_graph_connector(
+        self,
+        connector: ConnectorManifest,
+    ) -> ConnectorBrowseResponse:
+        tenant_id = settings.sharepoint_tenant_id
+        client_id = settings.sharepoint_client_id
+        client_secret = settings.sharepoint_client_secret
+        if not tenant_id or not client_id or not client_secret:
+            raise ValueError(
+                "SharePoint Graph browse requires SHAREPOINT_TENANT_ID, "
+                "SHAREPOINT_CLIENT_ID, and SHAREPOINT_CLIENT_SECRET."
+            )
+
+        drive_id = connector.provider_settings.get("drive_id", "").strip()
+        folder_path = connector.provider_settings.get("folder_path", "").strip().strip("/")
+        folder_id = connector.provider_settings.get("folder_id", "").strip()
+        if not drive_id:
+            raise ValueError("SharePoint Graph browse requires provider_settings.drive_id.")
+
+        access_token = self._get_graph_access_token(
+            tenant_id=tenant_id,
+            client_id=client_id,
+            client_secret=client_secret,
+        )
+
+        if folder_id:
+            root_segment = f"items/{folder_id}"
+        elif folder_path:
+            root_segment = f"root:/{folder_path}:"
+        else:
+            root_segment = "root"
+
+        response = httpx.get(
+            f"{settings.sharepoint_graph_base_url}/drives/{drive_id}/{root_segment}/children",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=60.0,
+        )
+        response.raise_for_status()
+        payload = response.json()
+
+        folders = [
+            ConnectorFolderOption(
+                id=folder_id or "root",
+                name=folder_path.split("/")[-1] if folder_path else "Root",
+                path=folder_path,
+                provider=connector.provider,
+            )
+        ]
+
+        for item in payload.get("value", []):
+            if "folder" not in item:
+                continue
+            item_id = str(item.get("id", "")).strip()
+            item_name = str(item.get("name", "")).strip()
+            if not item_id or not item_name:
+                continue
+            item_path = "/".join(part for part in (folder_path, item_name) if part)
+            folders.append(
+                ConnectorFolderOption(
+                    id=item_id,
+                    name=item_name,
+                    path=item_path,
+                    provider=connector.provider,
+                )
+            )
+
+        return ConnectorBrowseResponse(
+            provider=connector.provider,
+            folders=folders,
         )
 
     def _get_graph_access_token(
