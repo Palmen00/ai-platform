@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Suspense, useEffect, useMemo, useState } from "react";
 import { AppShell } from "../../components/AppShell";
 import { AuthStatusResponse, getAuthStatus, loginUser, logoutAdmin } from "../../lib/api";
 
@@ -16,7 +16,7 @@ function normalizeNextPath(value: string | null) {
   return value;
 }
 
-export default function LoginPage() {
+function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = useMemo(
@@ -68,8 +68,12 @@ export default function LoginPage() {
       await loginUser(username, password);
       window.dispatchEvent(new Event(AUTH_UPDATED_EVENT));
       router.replace(nextPath);
-    } catch {
-      setError("Could not sign in with those credentials.");
+    } catch (error) {
+      setError(
+        error instanceof Error
+          ? error.message
+          : "Could not sign in with those credentials."
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -224,5 +228,21 @@ export default function LoginPage() {
         </form>
       </div>
     </AppShell>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell contentClassName="p-4 md:p-6 xl:p-8">
+          <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-10 text-sm text-slate-600 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8">
+            Loading login...
+          </section>
+        </AppShell>
+      }
+    >
+      <LoginPageContent />
+    </Suspense>
   );
 }

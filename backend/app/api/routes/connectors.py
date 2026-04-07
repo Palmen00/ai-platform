@@ -43,6 +43,7 @@ def browse_connector(
     payload: ConnectorBrowseRequest,
     session=Depends(require_admin_from_either_header),
 ) -> ConnectorBrowseResponse:
+    ensure_safe_mode_allows("Connector browsing")
     connector = connector_registry.create_preview_connector(payload)
 
     try:

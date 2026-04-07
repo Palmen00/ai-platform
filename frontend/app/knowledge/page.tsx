@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { siteConfig } from "../../config/site";
@@ -11,7 +11,7 @@ import { DocumentUploadForm } from "../../features/documents/components/Document
 import { useDocuments } from "../../features/documents/hooks/useDocuments";
 import { AuthStatusResponse, getAuthStatus } from "../../lib/api";
 
-export default function KnowledgePage() {
+function KnowledgePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isFileTypesModalOpen, setIsFileTypesModalOpen] = useState(false);
@@ -377,5 +377,21 @@ export default function KnowledgePage() {
         )}
       </div>
     </AppShell>
+  );
+}
+
+export default function KnowledgePage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell contentClassName="p-4 md:p-6 xl:p-8">
+          <section className="rounded-[1.25rem] border border-slate-200/80 bg-white/92 px-5 py-6 text-sm text-slate-600 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+            Loading knowledge...
+          </section>
+        </AppShell>
+      }
+    >
+      <KnowledgePageContent />
+    </Suspense>
   );
 }

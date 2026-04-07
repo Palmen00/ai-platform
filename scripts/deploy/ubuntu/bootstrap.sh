@@ -28,12 +28,33 @@ install_missing_packages() {
     curl
     git
     ca-certificates
-    docker.io
-    docker-compose-v2
-    tesseract-ocr
-    tesseract-ocr-eng
-    tesseract-ocr-swe
   )
+
+  local docker_ready=false
+  if command -v docker >/dev/null 2>&1; then
+    if docker --version >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+      docker_ready=true
+    fi
+  fi
+
+  if [[ "${docker_ready}" != "true" ]]; then
+    packages+=(
+      docker.io
+      docker-compose-v2
+    )
+  fi
+
+  if ! command -v tesseract >/dev/null 2>&1; then
+    packages+=(
+      tesseract-ocr
+      tesseract-ocr-eng
+      tesseract-ocr-swe
+    )
+  fi
+
+  if [[ "${#packages[@]}" -eq 0 ]]; then
+    return
+  fi
 
   run_with_sudo apt-get update
   run_with_sudo apt-get install -y "${packages[@]}"

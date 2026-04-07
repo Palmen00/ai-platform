@@ -1,19 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { siteConfig } from "../../../config/site";
 import {
   ChatHistoryItem,
   getConversation,
   sendChatMessage,
 } from "../../../lib/api";
+import { createClientId } from "../../../lib/client-id";
 import { ChatMessage } from "../types";
 
 const CONVERSATIONS_UPDATED_EVENT = "conversations:updated";
 
 function createAssistantMessage(content: string): ChatMessage {
   return {
-    id: crypto.randomUUID(),
+    id: createClientId(),
     role: "assistant",
     content,
   };
@@ -25,7 +26,7 @@ function mapHistoryToMessages(history: ChatHistoryItem[]): ChatMessage[] {
   }
 
   return history.map((item) => ({
-    id: crypto.randomUUID(),
+    id: createClientId(),
     role: item.role,
     content: item.content,
     model: item.model,
@@ -46,8 +47,13 @@ export function useChat(
   );
   const [isLoading, setIsLoading] = useState(false);
   const [conversationError, setConversationError] = useState("");
+  const [chatError, setChatError] = useState("");
+  const loadRequestIdRef = useRef(0);
 
   useEffect(() => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+
     async function loadConversation() {
       setConversationError("");
 
@@ -61,17 +67,33 @@ export function useChat(
       }
 
       try {
-        const conversation = await getConversation(requestedConversationId);
+        let conversation = await getConversation(requestedConversationId);
+        if (loadRequestIdRef.current !== requestId) {
+          return;
+        }
+
+        if (!conversation.messages.length) {
+          await new Promise((resolve) => window.setTimeout(resolve, 400));
+          conversation = await getConversation(requestedConversationId);
+          if (loadRequestIdRef.current !== requestId) {
+            return;
+          }
+        }
+
         setActiveConversationId(conversation.id);
         setConversationDocumentIds(conversation.document_ids ?? []);
         setMessages(mapHistoryToMessages(conversation.messages));
+        setChatError("");
       } catch {
+        if (loadRequestIdRef.current !== requestId) {
+          return;
+        }
         setConversationError(siteConfig.chat.errors.conversationLoadError);
-        setActiveConversationId("");
-        setConversationDocumentIds([]);
-        setMessages([
-          createAssistantMessage(siteConfig.chat.initialAssistantMessage),
-        ]);
+        setMessages((current) =>
+          current.length > 0
+            ? current
+            : [createAssistantMessage(siteConfig.chat.initialAssistantMessage)]
+        );
       }
     }
 
@@ -81,8 +103,9 @@ export function useChat(
   async function sendMessage(text: string) {
     if (!text.trim() || isLoading) return;
 
+    setChatError("");
     const userMessage: ChatMessage = {
-      id: crypto.randomUUID(),
+      id: createClientId(),
       role: "user",
       content: text,
     };
@@ -109,7 +132,7 @@ export function useChat(
       );
 
       const assistantMessage: ChatMessage = {
-        id: crypto.randomUUID(),
+        id: createClientId(),
         role: "assistant",
         content: response.reply,
         model: response.model,
@@ -125,13 +148,18 @@ export function useChat(
 
       window.dispatchEvent(new Event(CONVERSATIONS_UPDATED_EVENT));
       return response.conversation_id;
-    } catch {
+    } catch (error) {
+      const nextError =
+        error instanceof Error && error.message
+          ? error.message
+          : siteConfig.chat.errors.backendUnavailable;
+      setChatError(nextError);
       setMessages((prev) => [
         ...prev,
         {
-          id: crypto.randomUUID(),
+          id: createClientId(),
           role: "assistant",
-          content: siteConfig.chat.errors.backendUnavailable,
+          content: nextError,
         },
       ]);
       return undefined;
@@ -155,6 +183,7 @@ export function useChat(
     conversationDocumentIds,
     isLoading,
     conversationError,
+    chatError,
     sendMessage,
     clearChat,
   };

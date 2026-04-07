@@ -3,11 +3,13 @@ from difflib import SequenceMatcher
 import re
 
 from app.schemas.chat import ChatHistoryMessage, ChatSource
+from app.services.assistant_context import AssistantContextService
 from app.services.ollama import OllamaService
 
 
 class GenerationService:
     def __init__(self) -> None:
+        self.assistant_context_service = AssistantContextService()
         self.ollama_service = OllamaService()
 
     @property
@@ -22,11 +24,19 @@ class GenerationService:
         sources: list[ChatSource],
     ) -> str:
         context_summary = self._build_context_summary(sources)
+        runtime_context = self.assistant_context_service.build_runtime_context()
+        assistant_packs = self.assistant_context_service.select_packs(
+            user_message=user_message,
+            history=history,
+            sources=sources,
+        )
         prompt = self.ollama_service.build_prompt(
             history=history,
             user_message=user_message,
             sources=sources,
             context_summary=context_summary,
+            runtime_context=runtime_context,
+            assistant_packs=assistant_packs,
         )
         return self.ollama_service.generate_reply(model=model, prompt=prompt)
 
@@ -38,11 +48,19 @@ class GenerationService:
         sources: list[ChatSource],
     ) -> str:
         context_summary = self._build_context_summary(sources)
+        runtime_context = self.assistant_context_service.build_runtime_context()
+        assistant_packs = self.assistant_context_service.select_packs(
+            user_message=user_message,
+            history=history,
+            sources=sources,
+        )
         prompt = self.ollama_service.build_grounded_document_prompt(
             history=history,
             user_message=user_message,
             sources=sources,
             context_summary=context_summary,
+            runtime_context=runtime_context,
+            assistant_packs=assistant_packs,
         )
         return self.ollama_service.generate_reply(model=model, prompt=prompt)
 

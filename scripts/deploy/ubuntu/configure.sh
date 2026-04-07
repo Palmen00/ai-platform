@@ -114,6 +114,11 @@ load_answer_file() {
           hostname_or_domain_override="${value}"
         fi
         ;;
+      PUBLIC_URL_SCHEME)
+        if [[ "${public_url_scheme_cli_set}" != "true" ]]; then
+          public_url_scheme_override="${value}"
+        fi
+        ;;
       OCR_ENABLED)
         if [[ "${ocr_cli_set}" != "true" ]]; then
           ocr_input="${value}"
@@ -228,6 +233,21 @@ normalize_auth_mode() {
   esac
 }
 
+normalize_public_url_scheme() {
+  local value="${1,,}"
+  case "${value}" in
+    http)
+      printf 'http'
+      ;;
+    https)
+      printf 'https'
+      ;;
+    *)
+      printf 'https'
+      ;;
+  esac
+}
+
 configure_profile_defaults() {
   case "$1" in
     light)
@@ -320,6 +340,8 @@ Options:
   --backend-port <port>             Default: 8000
   --qdrant-port <port>              Default: 6333
   --hostname <hostname>             Optional hostname/domain
+  --public-url-scheme <http|https>  Public URL scheme when hostname is set.
+                                    Default: https
   --ocr-enabled <yes|no>            Default: yes
   --connector-features-enabled <yes|no>
                                     Default: yes
@@ -343,6 +365,7 @@ frontend_port_override="3000"
 backend_port_override="8000"
 qdrant_port_override="6333"
 hostname_or_domain_override=""
+public_url_scheme_override=""
 ocr_input="yes"
 connectors_input="yes"
 
@@ -359,6 +382,7 @@ frontend_port_cli_set=false
 backend_port_cli_set=false
 qdrant_port_cli_set=false
 hostname_cli_set=false
+public_url_scheme_cli_set=false
 ocr_cli_set=false
 connectors_cli_set=false
 
@@ -439,6 +463,11 @@ while [[ $# -gt 0 ]]; do
     --hostname)
       hostname_or_domain_override="${2:-}"
       hostname_cli_set=true
+      shift 2
+      ;;
+    --public-url-scheme)
+      public_url_scheme_override="${2:-}"
+      public_url_scheme_cli_set=true
       shift 2
       ;;
     --ocr-enabled)
@@ -564,11 +593,23 @@ else
 fi
 
 if [[ -n "${HOSTNAME_OR_DOMAIN}" ]]; then
-  NEXT_PUBLIC_API_BASE_URL="http://${HOSTNAME_OR_DOMAIN}:${BACKEND_PORT}"
-  BACKEND_CORS_ORIGINS="http://${HOSTNAME_OR_DOMAIN}:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT}"
+  if [[ "${non_interactive}" != "true" ]]; then
+    PUBLIC_URL_SCHEME="$(prompt_with_default 'Public URL scheme (https, http)' "${public_url_scheme_override:-https}")"
+  else
+    PUBLIC_URL_SCHEME="${public_url_scheme_override:-https}"
+  fi
+  PUBLIC_URL_SCHEME="$(normalize_public_url_scheme "${PUBLIC_URL_SCHEME}")"
+  NEXT_PUBLIC_API_BASE_URL="${PUBLIC_URL_SCHEME}://${HOSTNAME_OR_DOMAIN}:${BACKEND_PORT}"
+  BACKEND_CORS_ORIGINS="${PUBLIC_URL_SCHEME}://${HOSTNAME_OR_DOMAIN}:${FRONTEND_PORT},http://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT}"
 else
+  PUBLIC_URL_SCHEME="http"
   NEXT_PUBLIC_API_BASE_URL="http://127.0.0.1:${BACKEND_PORT}"
   BACKEND_CORS_ORIGINS="http://localhost:${FRONTEND_PORT},http://127.0.0.1:${FRONTEND_PORT}"
+fi
+if [[ "${PUBLIC_URL_SCHEME}" == "https" ]]; then
+  ADMIN_SESSION_COOKIE_SECURE="true"
+else
+  ADMIN_SESSION_COOKIE_SECURE="false"
 fi
 
 if [[ "${non_interactive}" != "true" ]]; then
@@ -598,6 +639,8 @@ Frontend port: ${FRONTEND_PORT}
 Backend port: ${BACKEND_PORT}
 Qdrant port: ${QDRANT_PORT}
 Public API URL: ${NEXT_PUBLIC_API_BASE_URL}
+Public URL scheme: ${PUBLIC_URL_SCHEME}
+Secure auth cookie: ${ADMIN_SESSION_COOKIE_SECURE}
 Answer file: ${answer_file_override:-none}
 
 Validation only: no env file written.
@@ -615,11 +658,16 @@ umask 077
 cat >"${deploy_env_file}" <<EOF
 APP_ENV=prod
 APP_NAME=Local AI OS
+APP_TIMEZONE=Europe/Stockholm
+ASSISTANT_INTELLIGENCE_ENABLED=true
+ASSISTANT_BASE_PACKS=base,local-ai-os
+ASSISTANT_OPTIONAL_PACKS=code,reference
 INSTALL_PROFILE=${profile_input}
 INSTALL_OLLAMA_MODE=${ollama_mode}
 INSTALL_AUTH_MODE=${auth_mode}
 INSTALL_SECURITY_PROFILE=${security_profile}
 INSTALL_CONNECTOR_FEATURES_ENABLED=${CONNECTOR_FEATURES_ENABLED}
+INSTALL_PUBLIC_URL_SCHEME=${PUBLIC_URL_SCHEME}
 
 INSTALL_LOCAL_OLLAMA=${INSTALL_LOCAL_OLLAMA}
 OLLAMA_BASE_URL=${OLLAMA_BASE_URL}
@@ -648,8 +696,14 @@ ADMIN_USERNAME=${ADMIN_USERNAME}
 ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
 ADMIN_SESSION_SECRET=${ADMIN_SESSION_SECRET}
 ADMIN_SESSION_TTL_HOURS=12
+ADMIN_LOGIN_MAX_ATTEMPTS=5
+ADMIN_LOGIN_LOCKOUT_MINUTES=15
+ADMIN_LOGIN_IP_MAX_ATTEMPTS=20
+ADMIN_LOGIN_IP_WINDOW_SECONDS=300
+ADMIN_LOGIN_GLOBAL_MAX_ATTEMPTS=200
+ADMIN_LOGIN_GLOBAL_WINDOW_SECONDS=300
 ADMIN_SESSION_COOKIE_NAME=local_ai_admin_session
-ADMIN_SESSION_COOKIE_SECURE=false
+ADMIN_SESSION_COOKIE_SECURE=${ADMIN_SESSION_COOKIE_SECURE}
 ADMIN_SESSION_COOKIE_SAMESITE=lax
 APP_SECRETS_KEY=${APP_SECRETS_KEY}
 SAFE_MODE=${SAFE_MODE}
@@ -679,6 +733,8 @@ Bootstrap admin: ${ADMIN_USERNAME}
 Safe mode: ${SAFE_MODE}
 OCR enabled: ${OCR_ENABLED}
 Data root: ${DATA_ROOT_HOST}
+Public URL scheme: ${PUBLIC_URL_SCHEME}
+Secure auth cookie: ${ADMIN_SESSION_COOKIE_SECURE}
 Env file: ${deploy_env_file}
 
 Next recommended step:

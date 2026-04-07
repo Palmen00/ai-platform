@@ -48,6 +48,7 @@ services:
     volumes:
       - ${DATA_ROOT_HOST:-../data}:/app/data
       - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
     depends_on:
       - qdrant
     extra_hosts:

@@ -34,7 +34,7 @@ wait_for_http "http://127.0.0.1:${FRONTEND_PORT:-3000}" "Frontend"
 wait_for_http "http://127.0.0.1:${QDRANT_PORT:-6333}/collections" "Qdrant"
 
 if [[ "${INSTALL_LOCAL_OLLAMA:-false}" == "true" ]]; then
-  wait_for_http "${OLLAMA_BASE_URL:-http://127.0.0.1:11434}/api/tags" "Local Ollama"
+  wait_for_http "http://127.0.0.1:11434/api/tags" "Local Ollama"
 else
   wait_for_http "${OLLAMA_BASE_URL:-http://127.0.0.1:11434}/api/tags" "External Ollama"
 fi

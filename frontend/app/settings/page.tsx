@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { AppShell } from "../../components/AppShell";
 import { siteConfig } from "../../config/site";
 import { ConnectorManager } from "../../features/connectors/components/ConnectorManager";
@@ -197,7 +197,7 @@ const settingsPrimaryButtonClass =
 const settingsSecondaryButtonClass =
   "rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60";
 
-export default function SettingsPage() {
+function SettingsPageContent() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -2175,10 +2175,24 @@ export default function SettingsPage() {
                                   disabled
                                 </span>
                               )}
+                              {user.locked_until && (
+                                <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-red-700">
+                                  locked
+                                </span>
+                              )}
                             </div>
                             <p className="mt-1.5 text-sm text-slate-500">
                               Last login: {user.last_login_at ? new Date(user.last_login_at).toLocaleString() : "Never"}
                             </p>
+                            {user.locked_until ? (
+                              <p className="mt-1 text-xs text-red-600">
+                                Locked until {new Date(user.locked_until).toLocaleString()}
+                              </p>
+                            ) : (
+                              <p className="mt-1 text-xs text-slate-400">
+                                Failed login attempts: {user.failed_login_attempts ?? 0}
+                              </p>
+                            )}
                             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                               <span>Chats {user.stats?.conversation_count ?? 0}</span>
                               <span>Messages {user.stats?.message_count ?? 0}</span>
@@ -2655,5 +2669,21 @@ export default function SettingsPage() {
         </div>
       </div>
     </AppShell>
+  );
+}
+
+export default function SettingsPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell contentClassName="p-4 md:p-5 xl:p-6">
+          <section className="rounded-[1.25rem] border border-slate-200/80 bg-white/92 px-5 py-6 text-sm text-slate-600 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+            Loading settings...
+          </section>
+        </AppShell>
+      }
+    >
+      <SettingsPageContent />
+    </Suspense>
   );
 }

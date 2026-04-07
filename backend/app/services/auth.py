@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import base64
+from collections import deque
 import hashlib
 import hmac
 import json
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import Literal
 
-from fastapi import Cookie, Depends, Header, HTTPException, Response
+from fastapi import Cookie, Depends, HTTPException, Response
 
 from app.config import settings
 from app.schemas.user import LocalUserRecord, UserRole
@@ -20,6 +22,7 @@ class UserSession:
     user_id: str
     username: str
     role: UserRole
+    session_version: int
     expires_at: datetime
 
     @property
@@ -27,9 +30,19 @@ class UserSession:
         return self.role == "admin"
 
 
+@dataclass
+class AuthenticationResult:
+    status: Literal["ok", "invalid", "locked"]
+    user: LocalUserRecord | None = None
+    locked_until: datetime | None = None
+    remaining_attempts: int | None = None
+
+
 class AuthService:
     def __init__(self) -> None:
         self.user_service = UserService()
+        self._ip_login_attempts: dict[str, deque[datetime]] = {}
+        self._global_login_attempts: deque[datetime] = deque()
 
     @property
     def auth_enabled(self) -> bool:
@@ -47,15 +60,37 @@ class AuthService:
     def safe_mode_enabled(self) -> bool:
         return settings.safe_mode_enabled
 
-    def authenticate_user(self, username: str, password: str) -> LocalUserRecord | None:
+    def authenticate_user(self, username: str, password: str) -> AuthenticationResult:
         user = self.user_service.get_user_by_username(username)
         if user is None or not user.enabled:
-            return None
+            return AuthenticationResult(status="invalid")
+
+        if self.user_service.is_locked(user):
+            return AuthenticationResult(
+                status="locked",
+                user=user,
+                locked_until=datetime.fromisoformat(user.locked_until) if user.locked_until else None,
+            )
 
         if not verify_password_hash(password, user.password_hash):
-            return None
+            updated_user = self.user_service.record_failed_login(user.id)
+            if updated_user is not None and self.user_service.is_locked(updated_user):
+                return AuthenticationResult(
+                    status="locked",
+                    user=updated_user,
+                    locked_until=datetime.fromisoformat(updated_user.locked_until)
+                    if updated_user.locked_until
+                    else None,
+                )
+            return AuthenticationResult(
+                status="invalid",
+                user=updated_user or user,
+                remaining_attempts=self.user_service.get_remaining_login_attempts(
+                    updated_user or user
+                ),
+            )
 
-        return user
+        return AuthenticationResult(status="ok", user=user)
 
     def has_authenticated_access(self, token: str | None) -> bool:
         if not self.auth_active:
@@ -74,6 +109,7 @@ class AuthService:
             "sub": user.id,
             "username": user.username,
             "role": user.role,
+            "ver": user.session_version,
             "exp": int(expires_at.timestamp()),
         }
         payload_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
@@ -150,6 +186,11 @@ class AuthService:
         user_id = str(payload.get("sub", "")).strip()
         username = str(payload.get("username", "")).strip()
         role = str(payload.get("role", "")).strip()
+        try:
+            session_version = int(payload.get("ver", 1))
+        except (TypeError, ValueError):
+            return None
+
         if not user_id or not username or role not in {"admin", "viewer"}:
             return None
 
@@ -157,15 +198,53 @@ class AuthService:
         if user is None or not user.enabled:
             return None
 
-        if user.username != username or user.role != role:
+        if (
+            user.username != username
+            or user.role != role
+            or user.session_version != session_version
+        ):
             return None
 
         return UserSession(
             user_id=user.id,
             username=user.username,
             role=user.role,
+            session_version=user.session_version,
             expires_at=expires_at,
         )
+
+    def is_login_rate_limited(self, client_ip: str | None) -> bool:
+        self._prune_login_attempts()
+        if len(self._global_login_attempts) >= settings.admin_login_global_max_attempts:
+            return True
+        if not client_ip:
+            return False
+        ip_attempts = self._ip_login_attempts.get(client_ip)
+        return bool(
+            ip_attempts
+            and len(ip_attempts) >= settings.admin_login_ip_max_attempts
+        )
+
+    def record_login_attempt(self, client_ip: str | None) -> None:
+        now = datetime.now(UTC)
+        self._global_login_attempts.append(now)
+        if client_ip:
+            self._ip_login_attempts.setdefault(client_ip, deque()).append(now)
+        self._prune_login_attempts()
+
+    def _prune_login_attempts(self) -> None:
+        now = datetime.now(UTC)
+        global_cutoff = now - timedelta(seconds=settings.admin_login_global_window_seconds)
+        while self._global_login_attempts and self._global_login_attempts[0] < global_cutoff:
+            self._global_login_attempts.popleft()
+
+        ip_cutoff = now - timedelta(seconds=settings.admin_login_ip_window_seconds)
+        for client_ip in list(self._ip_login_attempts.keys()):
+            attempts = self._ip_login_attempts[client_ip]
+            while attempts and attempts[0] < ip_cutoff:
+                attempts.popleft()
+            if not attempts:
+                self._ip_login_attempts.pop(client_ip, None)
 
 
 auth_service = AuthService()
@@ -176,19 +255,8 @@ def get_session_token(
         default=None,
         alias=settings.admin_session_cookie_name,
     ),
-    authorization: str | None = Header(default=None),
-    x_admin_session: str | None = Header(default=None, alias="X-Admin-Session"),
 ) -> str | None:
-    if session_cookie:
-        return session_cookie
-
-    if x_admin_session:
-        return x_admin_session
-
-    if authorization and authorization.lower().startswith("bearer "):
-        return authorization[7:].strip()
-
-    return None
+    return session_cookie
 
 
 def get_current_session(token: str | None = Depends(get_session_token)) -> UserSession | None:

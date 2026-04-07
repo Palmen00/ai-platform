@@ -2,7 +2,11 @@
 
 import { FormEvent, useMemo, useState } from "react";
 import { siteConfig } from "../../../config/site";
-import { ConnectorManifest } from "../../../lib/api";
+import {
+  ConnectorBrowseResponse,
+  ConnectorManifest,
+  ConnectorSyncResponse,
+} from "../../../lib/api";
 
 type ConnectorManagerProps = {
   connectors: ConnectorManifest[];
@@ -17,28 +21,8 @@ type ConnectorManagerProps = {
   isBrowsing: boolean;
   error: string;
   statusMessage: string;
-  lastBrowseResult: {
-    provider: string;
-    folders: Array<{
-      id: string;
-      name: string;
-      path: string;
-      provider: string;
-    }>;
-  } | null;
-  lastSyncResult: {
-    connector_id: string;
-    scanned_count: number;
-    imported_count: number;
-    updated_count: number;
-    skipped_count: number;
-    results: Array<{
-      document_id: string;
-      original_name: string;
-      source_uri?: string | null;
-      action: string;
-    }>;
-  } | null;
+  lastBrowseResult: ConnectorBrowseResponse | null;
+  lastSyncResult: ConnectorSyncResponse | null;
   onCreate: (payload: {
     name: string;
     provider: string;

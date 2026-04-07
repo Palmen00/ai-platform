@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import uuid4
 
@@ -86,6 +86,7 @@ class UserService:
 
         if payload.password is not None and payload.password.strip():
             target.password_hash = hash_password(payload.password.strip())
+            target.session_version = max(1, target.session_version) + 1
 
         target.updated_at = datetime.now(UTC).isoformat()
         self._ensure_active_admin(users, changing_user_id=target.id)
@@ -101,7 +102,56 @@ class UserService:
         now = datetime.now(UTC).isoformat()
         target.last_login_at = now
         target.updated_at = now
+        target.failed_login_attempts = 0
+        target.locked_until = None
         self._write_users(users)
+
+    def is_locked(self, user: LocalUserRecord) -> bool:
+        if not user.locked_until:
+            return False
+
+        try:
+            locked_until = datetime.fromisoformat(user.locked_until)
+        except ValueError:
+            return False
+
+        return locked_until > datetime.now(UTC)
+
+    def get_remaining_login_attempts(self, user: LocalUserRecord) -> int:
+        remaining = settings.admin_login_max_attempts - user.failed_login_attempts
+        return max(0, remaining)
+
+    def record_failed_login(self, user_id: str) -> LocalUserRecord | None:
+        users = self.list_users()
+        target = next((user for user in users if user.id == user_id), None)
+        if target is None:
+            return None
+
+        target.failed_login_attempts = max(0, target.failed_login_attempts) + 1
+        if target.failed_login_attempts >= settings.admin_login_max_attempts:
+            locked_until = datetime.now(UTC) + timedelta(
+                minutes=settings.admin_login_lockout_minutes
+            )
+            target.locked_until = locked_until.isoformat()
+            target.failed_login_attempts = 0
+        else:
+            target.locked_until = None
+
+        target.updated_at = datetime.now(UTC).isoformat()
+        self._write_users(users)
+        return target
+
+    def clear_lockout(self, user_id: str) -> LocalUserRecord | None:
+        users = self.list_users()
+        target = next((user for user in users if user.id == user_id), None)
+        if target is None:
+            return None
+
+        target.failed_login_attempts = 0
+        target.locked_until = None
+        target.updated_at = datetime.now(UTC).isoformat()
+        self._write_users(users)
+        return target
 
     def to_summary(self, user: LocalUserRecord) -> LocalUserSummary:
         return LocalUserSummary.model_validate(user.model_dump(exclude={"password_hash"}))

@@ -462,7 +462,7 @@ export const siteConfig = {
       authDisabled:
         "Admin auth is off in this environment. Fine for local prototyping, but not for wider internal use.",
       authEnabledConfigured:
-        "Admin auth is active and configured. Sensitive surfaces now require an admin unlock.",
+        "Admin auth is active and configured. Sensitive surfaces now require an admin unlock, and repeated failed sign-ins trigger a temporary lockout.",
       authEnabledNotConfigured:
         "Admin auth is on but not fully configured yet. Add ADMIN_PASSWORD_HASH and ADMIN_SESSION_SECRET before relying on it.",
       safeModeEnabled:

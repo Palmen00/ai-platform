@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useEffect, useRef, useState } from "react";
+import { ReactNode, Suspense, useEffect, useRef, useState } from "react";
 import { siteConfig } from "../config/site";
 import { ConversationSidebar } from "../features/chat/components/ConversationSidebar";
 import {
@@ -223,15 +223,17 @@ export function AppShell({
       return;
     }
 
+    const currentSystemStatus = systemStatus;
     const previousOverallStatus = previousOverallStatusRef.current;
     const hasRecovered =
       previousOverallStatus !== null && previousOverallStatus !== "ok";
-    previousOverallStatusRef.current = systemStatus.status;
+    previousOverallStatusRef.current = currentSystemStatus.status;
 
     async function handleRecovery() {
-      const retriableDocuments = systemStatus.recovery.retriable_documents;
+      const retriableDocuments =
+        currentSystemStatus.recovery.retriable_documents;
       const shouldAttemptRecovery =
-        systemStatus.recovery.auto_retry_recommended &&
+        currentSystemStatus.recovery.auto_retry_recommended &&
         attemptedRecoveryCountRef.current !== retriableDocuments;
 
       if (shouldAttemptRecovery) {
@@ -263,7 +265,7 @@ export function AppShell({
 
       if (hasRecovered) {
         setRecoveryNotice(
-          systemStatus.recovery.retriable_documents > 0
+          currentSystemStatus.recovery.retriable_documents > 0
             ? siteConfig.shell.recoveryFallback
             : siteConfig.shell.recoveryNoop
         );
@@ -307,8 +309,12 @@ export function AppShell({
       setIsProfileMenuOpen(false);
       window.dispatchEvent(new Event(AUTH_UPDATED_EVENT));
       router.refresh();
-    } catch {
-      setProfileAuthError("Could not sign in with those credentials.");
+    } catch (error) {
+      setProfileAuthError(
+        error instanceof Error
+          ? error.message
+          : "Could not sign in with those credentials."
+      );
     } finally {
       setIsProfileSigningIn(false);
     }
@@ -393,7 +399,7 @@ export function AppShell({
                 </div>
                 <nav className="flex gap-2 overflow-x-auto lg:flex-col lg:overflow-visible">
                   {siteConfig.navigation.map((item) =>
-                    item.disabled ? (
+                    "disabled" in item && item.disabled ? (
                       <button
                         key={item.label}
                         disabled
@@ -433,7 +439,19 @@ export function AppShell({
                   </p>
                   </div>
                   <div>
-                    {sidebarContent ? sidebarContent : <ConversationSidebar />}
+                    {sidebarContent ? (
+                      sidebarContent
+                    ) : (
+                      <Suspense
+                        fallback={
+                          <div className="px-1.5 text-sm text-slate-500">
+                            Loading chats...
+                          </div>
+                        }
+                      >
+                        <ConversationSidebar />
+                      </Suspense>
+                    )}
                   </div>
                 </section>
               </div>

@@ -307,6 +307,8 @@ export type LocalUserSummary = {
   created_at: string;
   updated_at: string;
   last_login_at?: string | null;
+  failed_login_attempts?: number;
+  locked_until?: string | null;
   stats: {
     conversation_count: number;
     message_count: number;
@@ -517,7 +519,16 @@ export async function loginUser(
   });
 
   if (!response.ok) {
-    throw new Error("Failed to log in");
+    let detail = "Failed to log in";
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload.detail) {
+        detail = payload.detail;
+      }
+    } catch {
+      // Ignore JSON parsing issues and keep default error text.
+    }
+    throw new Error(detail);
   }
 
   const payload = (await response.json()) as LoginResponse;
@@ -575,7 +586,16 @@ export async function sendChatMessage(
   }));
 
   if (!response.ok) {
-    throw new Error("Failed to send chat message");
+    let errorMessage = "Failed to send chat message";
+    try {
+      const payload = (await response.json()) as { detail?: string };
+      if (payload.detail) {
+        errorMessage = payload.detail;
+      }
+    } catch {
+      // Keep the generic fallback when the backend does not return JSON.
+    }
+    throw new Error(errorMessage);
   }
 
   return response.json();

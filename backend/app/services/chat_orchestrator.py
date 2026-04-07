@@ -10,6 +10,7 @@ class ChatOrchestrator:
         self.retrieval_service = RetrievalService()
         self.generation_service = GenerationService()
         self.conversation_service = ConversationService()
+        self.assistant_context_service = self.generation_service.assistant_context_service
 
     @property
     def default_model(self) -> str:
@@ -28,6 +29,38 @@ class ChatOrchestrator:
             return ChatResponse(reply="Please enter a message.", model=payload.model)
 
         selected_model = payload.model or self.default_model
+        runtime_reply = self.assistant_context_service.answer_runtime_question(user_message)
+        if runtime_reply:
+            conversation_id: str | None = payload.conversation_id
+            if payload.persist_conversation:
+                conversation = self.conversation_service.append_round_trip(
+                    conversation_id=payload.conversation_id,
+                    user_message=ChatHistoryMessage(
+                        role="user",
+                        content=user_message,
+                    ),
+                    assistant_message=ChatHistoryMessage(
+                        role="assistant",
+                        content=runtime_reply,
+                        model=selected_model,
+                        sources=[],
+                        retrieval=None,
+                    ),
+                    model=selected_model,
+                    document_ids=payload.document_ids,
+                    owner_username=owner_username,
+                    is_admin=is_admin,
+                )
+                conversation_id = conversation.id
+
+            return ChatResponse(
+                reply=runtime_reply,
+                model=selected_model,
+                sources=[],
+                retrieval=None,
+                conversation_id=conversation_id,
+            )
+
         retrieval_result = self.retrieval_service.retrieve(
             user_message,
             limit=settings.retrieval_limit,

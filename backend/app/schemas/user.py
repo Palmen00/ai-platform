@@ -12,9 +12,12 @@ class LocalUserRecord(BaseModel):
     role: UserRole = "viewer"
     enabled: bool = True
     password_hash: str
+    session_version: int = 1
     created_at: str
     updated_at: str
     last_login_at: str | None = None
+    failed_login_attempts: int = 0
+    locked_until: str | None = None
 
 
 class UserWorkspaceStats(BaseModel):
@@ -33,6 +36,8 @@ class LocalUserSummary(BaseModel):
     created_at: str
     updated_at: str
     last_login_at: str | None = None
+    failed_login_attempts: int = 0
+    locked_until: str | None = None
     stats: UserWorkspaceStats = Field(default_factory=UserWorkspaceStats)
 
 

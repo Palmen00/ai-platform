@@ -23,6 +23,10 @@ function formatUpdatedAt(value: string) {
   });
 }
 
+function requiresLoginFromAuth(authStatus: AuthStatusResponse | null) {
+  return !!authStatus?.auth_enabled && !authStatus?.authenticated;
+}
+
 export function ConversationSidebar() {
   const pathname = usePathname();
   const router = useRouter();
@@ -61,7 +65,15 @@ export function ConversationSidebar() {
         return;
       }
 
-      const payload = await getConversations();
+      let payload = await getConversations();
+      if (loadRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      if (payload.conversations.length === 0 && !requiresLoginFromAuth(nextAuthStatus)) {
+        await new Promise((resolve) => window.setTimeout(resolve, 400));
+        payload = await getConversations();
+      }
       if (loadRequestIdRef.current !== requestId) {
         return;
       }
@@ -200,7 +212,7 @@ export function ConversationSidebar() {
     : filteredConversations.slice(0, siteConfig.chat.sidebarConversationLimit);
   const hasMoreConversations =
     filteredConversations.length > siteConfig.chat.sidebarConversationLimit;
-  const requiresLogin = !!authStatus?.auth_enabled && !authStatus?.authenticated;
+  const requiresLogin = requiresLoginFromAuth(authStatus);
   const newChatHref = requiresLogin ? "/login?next=/chat" : "/chat";
 
   return (

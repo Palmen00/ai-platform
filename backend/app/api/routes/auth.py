@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.schemas.auth import AuthStatusResponse, LoginRequest, LoginResponse
 from app.schemas.user import UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest
@@ -28,25 +28,48 @@ def get_auth_status(session=Depends(get_current_session)) -> AuthStatusResponse:
     )
 
 
+GENERIC_LOGIN_ERROR = "Could not sign in with those credentials."
+
+
 @router.post("/login", response_model=LoginResponse)
-def login(payload: LoginRequest, response: Response) -> LoginResponse:
+def login(payload: LoginRequest, request: Request, response: Response) -> LoginResponse:
     if not auth_service.auth_active:
         raise HTTPException(
             status_code=409,
             detail="Admin authentication is not enabled for this environment.",
         )
 
-    user = auth_service.authenticate_user(payload.username, payload.password)
-    if user is None:
+    client_ip = request.client.host if request.client else None
+    if auth_service.is_login_rate_limited(client_ip):
         log_event(
             "auth.login",
-            "Login failed.",
-            status="warning",
+            "Login blocked by rate limit.",
+            status="error",
             category="audit",
             attempted_username=payload.username.strip(),
+            client_ip=client_ip or "unknown",
         )
-        raise HTTPException(status_code=401, detail="Invalid credentials.")
+        raise HTTPException(
+            status_code=429,
+            detail="Too many sign-in attempts. Please wait and try again.",
+        )
 
+    result = auth_service.authenticate_user(payload.username, payload.password)
+    if result.status != "ok" or result.user is None:
+        auth_service.record_login_attempt(client_ip)
+        log_event(
+            "auth.login",
+            "Login blocked by lockout." if result.status == "locked" else "Login failed.",
+            status="warning" if result.status == "invalid" else "error",
+            category="audit",
+            attempted_username=payload.username.strip(),
+            remaining_attempts=result.remaining_attempts,
+            locked_until=result.locked_until.isoformat() if result.locked_until else None,
+            client_ip=client_ip or "unknown",
+        )
+        raise HTTPException(status_code=401, detail=GENERIC_LOGIN_ERROR)
+
+    user = result.user
     token, expires_at = auth_service.issue_session_token(user)
     auth_service.set_admin_session_cookie(
         response,
@@ -61,6 +84,7 @@ def login(payload: LoginRequest, response: Response) -> LoginResponse:
         actor_user_id=user.id,
         actor_username=user.username,
         actor_role=user.role,
+        client_ip=client_ip or "unknown",
     )
     return LoginResponse(
         expires_at=expires_at.isoformat(),

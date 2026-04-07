@@ -267,6 +267,13 @@ Ask for:
 - frontend port
 - backend bind port
 - optional public hostname/domain
+- public URL scheme, defaulting to `https` when a hostname/domain is set
+
+The public URL scheme should drive:
+
+- the generated public API URL
+- CORS origins for the public frontend
+- whether auth cookies are marked `Secure`
 
 ### 8. OCR Enablement
 

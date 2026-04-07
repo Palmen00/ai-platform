@@ -9,9 +9,27 @@ def _parse_cors_origins(raw_value: str) -> list[str]:
     return [origin.strip() for origin in raw_value.split(",") if origin.strip()]
 
 
+def _parse_csv_values(raw_value: str) -> list[str]:
+    return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
+def _resolve_project_paths() -> tuple[Path, Path]:
+    config_path = Path(__file__).resolve()
+    candidates = [config_path.parents[2], config_path.parents[1]]
+
+    for candidate in candidates:
+        if (candidate / "backend" / "app").exists():
+            return candidate, candidate / "backend"
+        if (candidate / "app").exists() and (candidate / "requirements.txt").exists():
+            return candidate, candidate
+
+    fallback = config_path.parents[2]
+    return fallback, fallback / "backend"
+
+
 class Settings:
     def __init__(self) -> None:
-        repo_root = Path(__file__).resolve().parents[2]
+        repo_root, backend_root = _resolve_project_paths()
         load_dotenv(repo_root / ".env", override=True)
         self._mutable_keys = (
             "ollama_base_url",
@@ -24,6 +42,7 @@ class Settings:
             "document_chunk_overlap",
         )
         self.repo_root = repo_root
+        self.backend_root = backend_root
         self.data_root = Path(os.getenv("DATA_ROOT", self.repo_root / "data"))
         self.app_data_root = Path(
             os.getenv("APP_DATA_ROOT", self.data_root / "app")
@@ -58,6 +77,12 @@ class Settings:
         self.connectors_dir = Path(
             os.getenv("CONNECTORS_DIR", self.app_data_root / "connectors")
         )
+        self.local_connector_allowed_roots = [
+            Path(path).expanduser().resolve()
+            for path in _parse_csv_values(
+                os.getenv("LOCAL_CONNECTOR_ALLOWED_ROOTS", "")
+            )
+        ]
         self.logs_dir = Path(os.getenv("LOGS_DIR", self.app_data_root / "logs"))
         self.ocr_data_dir = Path(
             os.getenv("OCR_DATA_DIR", self.app_data_root / "ocr" / "tessdata")
@@ -157,6 +182,31 @@ class Settings:
         self.tesseract_cmd = os.getenv("TESSERACT_CMD", "").strip()
         self.app_name = os.getenv("APP_NAME", "Local AI OS")
         self.app_env = os.getenv("APP_ENV", "dev")
+        self.app_timezone = os.getenv("APP_TIMEZONE", "Europe/Stockholm").strip() or "Europe/Stockholm"
+        self.assistant_intelligence_enabled = os.getenv(
+            "ASSISTANT_INTELLIGENCE_ENABLED",
+            "true",
+        ).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self.assistant_base_packs = _parse_csv_values(
+            os.getenv("ASSISTANT_BASE_PACKS", "base,local-ai-os")
+        )
+        self.assistant_optional_packs = _parse_csv_values(
+            os.getenv("ASSISTANT_OPTIONAL_PACKS", "code,reference")
+        )
+        self.starter_knowledge_enabled = os.getenv(
+            "STARTER_KNOWLEDGE_ENABLED",
+            "true",
+        ).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
         self.auth_enabled = os.getenv("AUTH_ENABLED", "false").lower() in {
             "1",
             "true",
@@ -170,6 +220,30 @@ class Settings:
         self.admin_session_ttl_hours = max(
             1,
             int(os.getenv("ADMIN_SESSION_TTL_HOURS", "12")),
+        )
+        self.admin_login_max_attempts = max(
+            1,
+            int(os.getenv("ADMIN_LOGIN_MAX_ATTEMPTS", "5")),
+        )
+        self.admin_login_lockout_minutes = max(
+            1,
+            int(os.getenv("ADMIN_LOGIN_LOCKOUT_MINUTES", "15")),
+        )
+        self.admin_login_ip_max_attempts = max(
+            1,
+            int(os.getenv("ADMIN_LOGIN_IP_MAX_ATTEMPTS", "20")),
+        )
+        self.admin_login_ip_window_seconds = max(
+            30,
+            int(os.getenv("ADMIN_LOGIN_IP_WINDOW_SECONDS", "300")),
+        )
+        self.admin_login_global_max_attempts = max(
+            1,
+            int(os.getenv("ADMIN_LOGIN_GLOBAL_MAX_ATTEMPTS", "200")),
+        )
+        self.admin_login_global_window_seconds = max(
+            30,
+            int(os.getenv("ADMIN_LOGIN_GLOBAL_WINDOW_SECONDS", "300")),
         )
         self.admin_session_cookie_name = os.getenv(
             "ADMIN_SESSION_COOKIE_NAME",

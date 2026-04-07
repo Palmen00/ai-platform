@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AppShell } from "../../components/AppShell";
 import { siteConfig } from "../../config/site";
@@ -18,7 +18,7 @@ import { ChatMessage } from "../../features/chat/components/ChatMessage";
 import { useChat } from "../../features/chat/hooks/useChat";
 import { DocumentPreviewPanel } from "../../features/documents/components/DocumentPreviewPanel";
 
-export default function ChatPage() {
+function ChatPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [model, setModel] = useState("");
@@ -55,6 +55,7 @@ export default function ChatPage() {
     conversationDocumentIds,
     isLoading,
     conversationError,
+    chatError,
     sendMessage,
     clearChat,
   } = useChat(model, requestedConversationId, selectedDocumentIds);
@@ -258,7 +259,12 @@ export default function ChatPage() {
     setInput("");
     const nextConversationId = await sendMessage(messageText);
 
-    if (nextConversationId && nextConversationId !== requestedConversationId) {
+    if (!nextConversationId) {
+      setInput(messageText);
+      return;
+    }
+
+    if (nextConversationId !== requestedConversationId) {
       router.replace(`/chat?conversation=${nextConversationId}`);
     }
   }
@@ -540,6 +546,7 @@ export default function ChatPage() {
                 </select>
 
                 <button
+                  type="button"
                   onClick={() => {
                     clearChat();
                     router.replace("/chat");
@@ -565,6 +572,12 @@ export default function ChatPage() {
             {conversationError && (
               <div className="mt-4 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
                 {conversationError}
+              </div>
+            )}
+
+            {chatError && (
+              <div className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">
+                {chatError}
               </div>
             )}
           </header>
@@ -667,6 +680,7 @@ export default function ChatPage() {
                   )}
 
                   <button
+                    type="button"
                     onClick={() => {
                       void handleSendMessage();
                     }}
@@ -697,5 +711,21 @@ export default function ChatPage() {
         }}
       />
     </AppShell>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense
+      fallback={
+        <AppShell contentClassName="p-4 md:p-6 xl:p-8">
+          <section className="rounded-[1.25rem] border border-slate-200/80 bg-white/92 px-5 py-6 text-sm text-slate-600 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+            Loading chat...
+          </section>
+        </AppShell>
+      }
+    >
+      <ChatPageContent />
+    </Suspense>
   );
 }
