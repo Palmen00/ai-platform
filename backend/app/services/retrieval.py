@@ -175,7 +175,7 @@ class RetrievalService:
                 if exact_phrase_sources:
                     selected_sources = exact_phrase_sources[:limit]
             if not self.document_service.is_document_reference_query(query):
-                selected_sources = [
+                filtered_sources = [
                     source
                     for source in selected_sources
                     if (
@@ -186,7 +186,12 @@ class RetrievalService:
                         )
                     )
                 ][:limit]
-                if not selected_sources:
+                if filtered_sources:
+                    selected_sources = filtered_sources
+                elif requested_document_ids and len(requested_document_ids) <= 3:
+                    selected_sources = selected_sources[:limit]
+                else:
+                    selected_sources = []
                     retrieval_mode = "none"
 
         confidence = self._confidence_level(

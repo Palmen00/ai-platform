@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 
+from app.config import settings
 from app.schemas.connector import ConnectorBrowseResponse
 from app.schemas.connector import ConnectorFolderOption
 from app.schemas.connector import ConnectorManifest
@@ -96,7 +97,7 @@ class ConnectorSyncService:
         if not connector.root_path:
             raise ValueError("Connector root_path is required for local sync.")
 
-        root_path = Path(connector.root_path)
+        root_path = self._resolve_and_validate_local_root(connector.root_path)
         if not root_path.exists() or not root_path.is_dir():
             raise FileNotFoundError(f"Connector root path not found: {root_path}")
 
@@ -196,7 +197,7 @@ class ConnectorSyncService:
         if not connector.root_path:
             raise ValueError("Connector root_path is required for local browsing.")
 
-        root_path = Path(connector.root_path)
+        root_path = self._resolve_and_validate_local_root(connector.root_path)
         if not root_path.exists() or not root_path.is_dir():
             raise FileNotFoundError(f"Connector root path not found: {root_path}")
 
@@ -258,3 +259,18 @@ class ConnectorSyncService:
             return None
 
         return parsed if parsed > 0 else None
+
+    def _resolve_and_validate_local_root(self, root_path_value: str) -> Path:
+        root_path = Path(root_path_value).expanduser().resolve()
+        allowed_roots = settings.local_connector_allowed_roots
+        if not allowed_roots:
+            return root_path
+
+        if any(root_path == allowed or allowed in root_path.parents for allowed in allowed_roots):
+            return root_path
+
+        allowed_display = ", ".join(str(path) for path in allowed_roots)
+        raise ValueError(
+            "Connector root path is outside the allowed local connector roots: "
+            f"{allowed_display}"
+        )

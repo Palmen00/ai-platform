@@ -45,8 +45,14 @@ For admin protection and a stricter runtime profile, these env values are now av
 - `APP_SECRETS_KEY=...`
 - `ADMIN_SESSION_TTL_HOURS=12`
 - `SAFE_MODE=true`
+- `APP_TIMEZONE=Europe/Stockholm`
+- `ASSISTANT_INTELLIGENCE_ENABLED=true`
+- `ASSISTANT_BASE_PACKS=base,local-ai-os`
+- `ASSISTANT_OPTIONAL_PACKS=code,reference`
 
 When `AUTH_ENABLED` is active and fully configured, `Settings`, `Connectors`, logs, runtime changes, cleanup, and backup import/export require admin sign-in from the UI. `SAFE_MODE` additionally blocks higher-risk operations such as cleanup, backup import/export, runtime setting changes, and manual connector imports.
+
+Fresh installs can also enable a small built-in assistant intelligence layer. It injects local date, time, weekday, and ISO week into prompts and adds compact starter prompt packs for general answering, Local AI OS product guidance, coding help, and light reference behavior, so the assistant feels more useful even before any documents are uploaded.
 
 Admin sessions now use an `HttpOnly` cookie instead of browser storage. New installs should prefer `ADMIN_PASSWORD_HASH` over cleartext `ADMIN_PASSWORD`, and `.env.ubuntu` is now written with `chmod 600` by the Ubuntu configure phase. The installer/bootstrap flow now also writes `ADMIN_USERNAME`, so the first bootstrap admin can be named during setup instead of being fixed in code.
 
@@ -80,6 +86,7 @@ Optional OCR support for scanned PDFs and image files:
 - `./scripts/eval/retrieval.ps1 -Suite backend/evals/retrieval_hard_cases.json`: Run harder OCR/disambiguation retrieval checks
 - `./scripts/eval/retrieval.ps1 -Suite backend/evals/reply_quality_cases.json -WithReplies`: Run reply-quality checks for natural document and OCR answers
 - `./scripts/eval/retrieval.ps1 -Suite backend/evals/document_coverage_cases.json -WithReplies`: Run broader document coverage checks across the current uploaded-document mix
+- `py -3 scripts/tests/run_upload_ocr_e2e.py --base-url http://<server>:8000`: Run the broad upload/OCR/document-chat end-to-end validation suite
 - `./scripts/eval/unstructured-compare.ps1`: Compare the current ingestion pipeline with a local Unstructured prototype
 - `./scripts/eval/gliner-compare.ps1`: Compare the current entity pipeline with a local GLiNER prototype
 - `./scripts/deploy/ubuntu/install.sh`: Run the installer-oriented Ubuntu flow end-to-end
@@ -264,6 +271,7 @@ The installer now also supports a first non-interactive path for automation:
   --security-profile safe \
   --admin-username Admin \
   --admin-password-file /root/local-ai-os-admin-password \
+  --public-url-scheme https \
   --data-root /opt/local-ai-os/data
 ```
 
@@ -315,6 +323,7 @@ Before deploy starts, the installer now prints a preflight summary of:
 - connector features
 - storage root
 - ports and public API URL
+- public URL scheme and secure-cookie mode
 
 Interactive installs stop there for confirmation before deploy continues.
 
@@ -348,7 +357,7 @@ You can also forward installer automation flags through the bootstrap path:
 
 ```bash
 export GITHUB_TOKEN=your_token_here
-./install-local-ai-os.sh --installer-args "--non-interactive --profile balanced --auth-mode required --admin-username Admin --admin-password-file /root/local-ai-os-admin-password"
+./install-local-ai-os.sh --installer-args "--non-interactive --profile balanced --auth-mode required --admin-username Admin --admin-password-file /root/local-ai-os-admin-password --public-url-scheme https"
 ```
 
 ## Retrieval Evals

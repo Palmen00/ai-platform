@@ -1556,13 +1556,17 @@ class DocumentService:
     def source_matches_query(self, query: str, source: ChatSource) -> bool:
         topic_phrase = self.extract_topic_phrase(query)
         excerpt = source.excerpt.lower()
+        section_title = (source.section_title or "").lower()
+        searchable_text = f"{section_title}\n{excerpt}".strip()
         if topic_phrase and len(topic_phrase.split()) >= 2:
-            if topic_phrase in excerpt:
+            if topic_phrase in searchable_text:
                 return True
 
             phrase_terms = self._query_terms(topic_phrase)
             if phrase_terms:
-                matched_phrase_terms = {term for term in phrase_terms if term in excerpt}
+                matched_phrase_terms = {
+                    term for term in phrase_terms if term in searchable_text
+                }
                 required_matches = min(
                     len(phrase_terms),
                     max(2, len(phrase_terms) - 1),
@@ -1574,7 +1578,7 @@ class DocumentService:
         if not terms:
             return False
 
-        matched_terms = {term for term in terms if term in excerpt}
+        matched_terms = {term for term in terms if term in searchable_text}
         if not matched_terms:
             document = self.get_document(source.document_id)
             if document is not None:
@@ -1582,6 +1586,10 @@ class DocumentService:
                 if signal_score >= 0.55:
                     return True
             return False
+
+        requested_document_type = self.extract_requested_document_type(query)
+        if requested_document_type and requested_document_type == (source.source_kind or ""):
+            return len(matched_terms) >= 1
 
         if len(terms) >= 2:
             return len(matched_terms) >= 2
@@ -2354,7 +2362,10 @@ class DocumentService:
         return ""
 
     def _query_terms(self, query: str) -> list[str]:
-        raw_terms = re.findall(r"[A-Za-z0-9]{3,}", query.lower())
+        raw_terms = re.findall(
+            r"[A-Za-z]+\d+|\d+[A-Za-z]+|[A-Za-z0-9]{3,}",
+            query.lower(),
+        )
         ignored_terms = {
             "the",
             "and",
@@ -2419,7 +2430,14 @@ class DocumentService:
             "laddat",
             "upp",
         }
-        return [term for term in raw_terms if term not in ignored_terms]
+        deduped_terms: list[str] = []
+        seen_terms: set[str] = set()
+        for term in raw_terms:
+            if term in ignored_terms or term in seen_terms:
+                continue
+            seen_terms.add(term)
+            deduped_terms.append(term)
+        return deduped_terms
 
     def _score_chunk(self, content: str, terms: list[str]) -> int:
         lowered = content.lower()
