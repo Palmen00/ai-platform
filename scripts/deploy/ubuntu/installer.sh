@@ -52,7 +52,7 @@ run_phase() {
 
   echo
   echo "==> Running ${phase_name} phase"
-  "${phase_script}"
+  bash "${phase_script}"
 }
 
 print_preflight_summary() {
@@ -180,7 +180,7 @@ fi
 if [[ "${skip_configure}" != "true" ]]; then
   echo
   echo "==> Running configure phase"
-  "${script_dir}/configure.sh" "${configure_args[@]}"
+  bash "${script_dir}/configure.sh" "${configure_args[@]}"
 fi
 
 if [[ "${skip_deploy}" != "true" ]]; then

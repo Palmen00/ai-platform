@@ -175,8 +175,9 @@ else
 fi
 
 installer_path="${install_root}/scripts/deploy/ubuntu/installer.sh"
-if [[ ! -x "${installer_path}" ]]; then
-  chmod +x "${installer_path}"
+if [[ ! -f "${installer_path}" ]]; then
+  log "Installer entrypoint was not found: ${installer_path}" >&2
+  exit 1
 fi
 
 log
@@ -191,4 +192,4 @@ else
   extra_args=()
 fi
 
-"${installer_path}" "${extra_args[@]}"
+bash "${installer_path}" "${extra_args[@]}"
