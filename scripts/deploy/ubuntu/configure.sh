@@ -46,6 +46,10 @@ escape_compose_env_value() {
   printf '%s' "$1" | sed 's/\$/$$/g'
 }
 
+base64_env_value() {
+  printf '%s' "$1" | base64 | tr -d '\n'
+}
+
 load_answer_file() {
   local file_path="$1"
   if [[ ! -f "${file_path}" ]]; then
@@ -661,6 +665,7 @@ if [[ -f "${deploy_env_file}" ]]; then
 fi
 
 ADMIN_PASSWORD_HASH_ENV="$(escape_compose_env_value "${ADMIN_PASSWORD_HASH}")"
+ADMIN_PASSWORD_HASH_B64="$(base64_env_value "${ADMIN_PASSWORD_HASH}")"
 ADMIN_SESSION_SECRET_ENV="$(escape_compose_env_value "${ADMIN_SESSION_SECRET}")"
 APP_SECRETS_KEY_ENV="$(escape_compose_env_value "${APP_SECRETS_KEY}")"
 
@@ -704,6 +709,7 @@ QDRANT_STORAGE_HOST=${QDRANT_STORAGE_HOST}
 AUTH_ENABLED=${AUTH_ENABLED}
 ADMIN_USERNAME=${ADMIN_USERNAME}
 ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH_ENV}
+ADMIN_PASSWORD_HASH_B64=${ADMIN_PASSWORD_HASH_B64}
 ADMIN_SESSION_SECRET=${ADMIN_SESSION_SECRET_ENV}
 ADMIN_SESSION_TTL_HOURS=12
 ADMIN_LOGIN_MAX_ATTEMPTS=5

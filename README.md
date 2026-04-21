@@ -41,6 +41,7 @@ For admin protection and a stricter runtime profile, these env values are now av
 - `AUTH_ENABLED=true`
 - `ADMIN_USERNAME=Admin`
 - `ADMIN_PASSWORD_HASH=...`
+- `ADMIN_PASSWORD_HASH_B64=...` for Docker Compose deploys that need to avoid `$` interpolation
 - `ADMIN_SESSION_SECRET=...`
 - `APP_SECRETS_KEY=...`
 - `ADMIN_SESSION_TTL_HOURS=12`
@@ -60,7 +61,7 @@ Fresh installs can also enable a small built-in assistant intelligence layer. It
 
 Document intelligence now also keeps working after upload time. New and reprocessed files get family grouping, lightweight version hints, topic tags, and cached similarity links. An idle maintenance worker can backfill the same metadata for older files when the server has been quiet long enough, so later document questions cost less work at query time.
 
-Admin sessions now use an `HttpOnly` cookie instead of browser storage. New installs should prefer `ADMIN_PASSWORD_HASH` over cleartext `ADMIN_PASSWORD`, and `.env.ubuntu` is now written with `chmod 600` by the Ubuntu configure phase. The installer/bootstrap flow now also writes `ADMIN_USERNAME`, so the first bootstrap admin can be named during setup instead of being fixed in code.
+Admin sessions now use an `HttpOnly` cookie instead of browser storage. New installs should prefer `ADMIN_PASSWORD_HASH` or `ADMIN_PASSWORD_HASH_B64` over cleartext `ADMIN_PASSWORD`, and `.env.ubuntu` is now written with `chmod 600` by the Ubuntu configure phase. The installer/bootstrap flow now also writes `ADMIN_USERNAME`, so the first bootstrap admin can be named during setup instead of being fixed in code.
 
 The `Settings` screen now includes a dedicated document intelligence view for family grouping, version coverage, topic-tag readiness, and idle-maintenance status. That page can also trigger a single maintenance step manually when an admin wants to refresh stale document metadata without reprocessing everything.
 

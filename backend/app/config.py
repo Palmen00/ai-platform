@@ -1,5 +1,6 @@
-import os
+import base64
 import json
+import os
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,6 +12,13 @@ def _parse_cors_origins(raw_value: str) -> list[str]:
 
 def _parse_csv_values(raw_value: str) -> list[str]:
     return [item.strip() for item in raw_value.split(",") if item.strip()]
+
+
+def _decode_base64_env(raw_value: str) -> str:
+    value = raw_value.strip()
+    if not value:
+        return ""
+    return base64.b64decode(value, validate=True).decode("utf-8")
 
 
 def _resolve_project_paths() -> tuple[Path, Path]:
@@ -214,7 +222,9 @@ class Settings:
             "on",
         }
         self.admin_username = os.getenv("ADMIN_USERNAME", "Admin").strip() or "Admin"
-        self.admin_password_hash = os.getenv("ADMIN_PASSWORD_HASH", "").strip()
+        self.admin_password_hash = _decode_base64_env(
+            os.getenv("ADMIN_PASSWORD_HASH_B64", "")
+        ) or os.getenv("ADMIN_PASSWORD_HASH", "").strip()
         self.admin_password = os.getenv("ADMIN_PASSWORD", "").strip()
         self.admin_session_secret = os.getenv("ADMIN_SESSION_SECRET", "").strip()
         self.admin_session_ttl_hours = max(
