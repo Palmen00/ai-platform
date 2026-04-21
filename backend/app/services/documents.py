@@ -347,6 +347,14 @@ class DocumentService:
                 else 0.0
             )
             shared_terms = query_terms & name_terms
+            short_reference_bonus = 0.0
+            for term in shared_terms:
+                if len(term) > 2:
+                    continue
+                if normalized_name.startswith(f"{term} "):
+                    short_reference_bonus = max(short_reference_bonus, 0.36)
+                else:
+                    short_reference_bonus = max(short_reference_bonus, 0.24)
             overlap_score = (
                 len(shared_terms) / max(len(query_terms), 1)
                 if query_terms
@@ -379,6 +387,7 @@ class DocumentService:
                 + (precision_score * 0.08)
                 + (similarity_score * 0.05)
                 + (metadata_signal_score * 0.18)
+                + short_reference_bonus
                 - extra_term_penalty
             )
 
