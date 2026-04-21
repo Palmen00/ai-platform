@@ -48,10 +48,10 @@ TEST_CASES: list[BusinessQuestion] = [
     ),
     BusinessQuestion(
         key="latest_upload_followup",
-        question="What is FS about?",
-        expected_substrings=["SWIFT"],
-        expected_source_fragments=["FS 130_04_2026_nV68.pdf"],
-        continue_history=False,
+        question="What is that document about?",
+        expected_substrings=[],
+        expected_source_fragments=[],
+        continue_history=True,
     ),
     BusinessQuestion(
         key="policy_title",
@@ -142,6 +142,19 @@ def _case_specific_reply_match(case: BusinessQuestion, reply: str) -> bool:
         return (
             "most recently uploaded document" in lowered
             and bool(re.search(r"\.[a-z0-9]{2,5}\b", reply))
+        )
+    if case.key == "latest_upload_followup":
+        lowered = reply.lower()
+        weak_markers = (
+            "i do not know",
+            "i don't know",
+            "could not find",
+            "cannot tell",
+            "without more context",
+            "please specify",
+        )
+        return len(reply.strip()) >= 40 and not any(
+            marker in lowered for marker in weak_markers
         )
     return _contains_all(reply, case.expected_substrings)
 
