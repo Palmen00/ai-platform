@@ -507,6 +507,21 @@ export function DocumentList({
                       {formatDocumentSignals(document.document_signals)}
                     </div>
                   )}
+                  {(document.document_family_label ||
+                    (document.document_topics ?? []).length > 0 ||
+                    (document.similar_documents ?? []).length > 0) && (
+                    <div className="mt-1 max-w-xs truncate text-[11px] text-slate-400">
+                      {[
+                        document.document_family_label,
+                        ...(document.document_topics ?? []).slice(0, 2),
+                        (document.similar_documents ?? []).length > 0
+                          ? `${(document.similar_documents ?? []).length} similar`
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" / ")}
+                    </div>
+                  )}
                 </td>
                 <td className="px-3 py-3 text-sm">
                   {formatFileSize(document.size_bytes)}

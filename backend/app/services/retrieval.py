@@ -243,6 +243,8 @@ class RetrievalService:
             if selected_sources:
                 retrieval_mode = "term"
 
+        selected_sources = self._filter_sources_for_media_query(query, selected_sources)
+
         confidence = self._confidence_level(
             query=query,
             sources=selected_sources,
@@ -268,6 +270,33 @@ class RetrievalService:
                 requested_document_year=requested_document_year,
             ),
         )
+
+    def _filter_sources_for_media_query(
+        self,
+        query: str,
+        sources: list[ChatSource],
+    ) -> list[ChatSource]:
+        if not sources:
+            return sources
+
+        lowered = " ".join(query.lower().split())
+        if "scanned pdf" in lowered or ("scanned" in lowered and "pdf" in lowered):
+            filtered_sources = [
+                source
+                for source in sources
+                if (source.source_kind or "").lower() == "pdf" and source.ocr_used
+            ]
+            return filtered_sources or sources
+
+        if "scanned image" in lowered or ("scanned" in lowered and "image" in lowered):
+            filtered_sources = [
+                source
+                for source in sources
+                if (source.source_kind or "").lower() == "image" and source.ocr_used
+            ]
+            return filtered_sources or sources
+
+        return sources
 
     def build_grounded_document_reply(
         self,
@@ -319,6 +348,17 @@ class RetrievalService:
             if entity_answer:
                 return entity_answer
 
+        if self.document_service.is_document_code_function_query(query):
+            code_answer = self.document_service.summarize_document_code_functions(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if code_answer:
+                return code_answer
+
         if self.document_service.is_document_product_query(query):
             product_answer = self.document_service.summarize_document_products(
                 query,
@@ -329,6 +369,50 @@ class RetrievalService:
             )
             if product_answer:
                 return product_answer
+
+        if self.document_service.is_document_action_query(query):
+            action_answer = self.document_service.summarize_document_actions(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if action_answer:
+                return action_answer
+
+        if self.document_service.is_document_decision_query(query):
+            decision_answer = self.document_service.summarize_document_decisions(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if decision_answer:
+                return decision_answer
+
+        if self.document_service.is_document_deadline_query(query):
+            deadline_answer = self.document_service.summarize_document_deadlines(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if deadline_answer:
+                return deadline_answer
+
+        if self.document_service.is_document_risk_query(query):
+            risk_answer = self.document_service.summarize_document_risks(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if risk_answer:
+                return risk_answer
 
         if not (
             self.document_service.is_document_reference_query(query)
@@ -581,6 +665,7 @@ class RetrievalService:
                 f"A notable marker in the document is {document.document_summary_anchor}."
             )
 
+        details.extend(self._document_key_facts(document.id))
         details.extend(self._document_source_highlights(document_sources))
         return " ".join(
             sentence
@@ -639,6 +724,71 @@ class RetrievalService:
             return True
 
         return " about" in lowered
+
+    def _document_key_facts(self, document_id: str) -> list[str]:
+        extracted_text = self.document_service.get_extracted_text(document_id)
+        if not extracted_text:
+            return []
+
+        lines = [
+            " ".join(line.split()).strip(" :")
+            for line in extracted_text.replace("\r", "\n").splitlines()
+        ]
+        lines = [line for line in lines if line]
+        heading_markers = {
+            "project",
+            "purpose",
+            "summary",
+            "offer",
+            "incident summary",
+            "findings",
+            "recommendation",
+            "commercial terms",
+        }
+        facts: list[str] = []
+        for index, line in enumerate(lines):
+            lowered = line.lower()
+            inline_match = re.match(
+                r"^(project|purpose|summary|offer|incident summary|findings|recommendation|commercial terms)\s*[:\-]\s*(.+)$",
+                lowered,
+            )
+            if inline_match:
+                fact = line.split(":", 1)[-1].strip(" -")
+                if self._is_useful_key_fact(fact):
+                    facts.append(fact)
+                continue
+
+            if lowered not in heading_markers:
+                continue
+            for next_line in lines[index + 1 : index + 4]:
+                if next_line.lower() in heading_markers:
+                    break
+                if self._is_useful_key_fact(next_line):
+                    facts.append(next_line)
+                    break
+
+        deduped_facts: list[str] = []
+        seen: set[str] = set()
+        for fact in facts:
+            normalized = fact.lower()
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped_facts.append(fact)
+            if len(deduped_facts) >= 2:
+                break
+
+        if not deduped_facts:
+            return []
+        return [f"Important extracted details include {self._join_phrases(deduped_facts)}."]
+
+    def _is_useful_key_fact(self, value: str) -> bool:
+        cleaned = " ".join(str(value or "").split()).strip()
+        if len(cleaned) < 12 or len(cleaned) > 240:
+            return False
+        if cleaned.lower() in {"project", "purpose", "summary", "findings"}:
+            return False
+        return True
 
     def _build_document_summary_lead(self, document, sources: list[ChatSource]) -> str:
         document_type = self._document_type_label(document, sources)

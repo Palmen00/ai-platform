@@ -1288,7 +1288,14 @@ class DocumentService:
             "uppladdade",
             "arkitekturfilen",
         }
-        return any(term in lowered for term in reference_terms)
+        if any(term in lowered for term in reference_terms):
+            return True
+        return bool(
+            re.search(
+                r"\.(?:pdf|txt|md|docx?|xlsx?|pptx?|csv|json|xml|ya?ml|py|ts|tsx|js|jsx|png|jpe?g)\b",
+                lowered,
+            )
+        )
 
     def is_document_inventory_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
@@ -1412,6 +1419,20 @@ class DocumentService:
             "item",
             "ordered",
             "did i order",
+            "risk",
+            "risks",
+            "issue",
+            "issues",
+            "incident",
+            "incidents",
+            "action",
+            "actions",
+            "todo",
+            "deadline",
+            "deadlines",
+            "due",
+            "decision",
+            "decisions",
         )
         return any(marker in lowered for marker in content_markers)
 
@@ -1686,6 +1707,18 @@ class DocumentService:
 
     def is_document_product_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
+        if any(
+            marker in lowered
+            for marker in (
+                "action item",
+                "action items",
+                "next step",
+                "next steps",
+                "todo",
+                "to do",
+            )
+        ):
+            return False
         product_markers = (
             "product",
             "products",
@@ -1697,6 +1730,22 @@ class DocumentService:
             "did i order",
         )
         return any(marker in lowered for marker in product_markers)
+
+    def is_document_code_function_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        if "function" not in lowered:
+            return False
+        markers = (
+            "function name",
+            "function names",
+            "what function",
+            "which function",
+            "functions are",
+            "functions appear",
+            "function appears",
+            "function returns",
+        )
+        return any(marker in lowered for marker in markers)
 
     def is_multi_document_product_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
@@ -1717,6 +1766,106 @@ class DocumentService:
                 "any documents",
             )
         )
+
+    def is_document_risk_query(self, query: str) -> bool:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        if any(
+            marker in lowered
+            for marker in (
+                "incident code",
+                "what code",
+                "which code",
+                "code appears",
+                "access code",
+            )
+        ):
+            return False
+        markers = (
+            "risk",
+            "risks",
+            "issue",
+            "issues",
+            "incident",
+            "incidents",
+            "problem",
+            "problems",
+            "blocker",
+            "blockers",
+            "vulnerability",
+            "concern",
+            "concerns",
+            "weakness",
+            "weaknesses",
+            "risker",
+            "problem",
+            "incident",
+        )
+        return any(marker in lowered for marker in markers)
+
+    def is_document_action_query(self, query: str) -> bool:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        markers = (
+            "action",
+            "actions",
+            "action item",
+            "action items",
+            "todo",
+            "to do",
+            "next step",
+            "next steps",
+            "follow up",
+            "recommendation",
+            "recommendations",
+            "what should",
+            "what must",
+            "atgard",
+            "atgarder",
+            "nasta steg",
+            "ansvarig",
+        )
+        return any(marker in lowered for marker in markers)
+
+    def is_document_decision_query(self, query: str) -> bool:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        markers = (
+            "decision",
+            "decisions",
+            "decided",
+            "approved",
+            "approval",
+            "accepted",
+            "rejected",
+            "agreed",
+            "chosen",
+            "selected",
+            "go/no-go",
+            "beslut",
+            "beslutade",
+            "godkand",
+        )
+        return any(marker in lowered for marker in markers)
+
+    def is_document_deadline_query(self, query: str) -> bool:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        markers = (
+            "deadline",
+            "deadlines",
+            "due",
+            "due date",
+            "valid until",
+            "expires",
+            "expiry",
+            "renewal",
+            "within",
+            "how long",
+            "when must",
+            "when should",
+            "senast",
+            "deadline",
+            "forfall",
+            "giltig",
+        )
+        return any(marker in lowered for marker in markers)
 
     def is_broad_similarity_inventory_query(self, query: str) -> bool:
         return self.is_document_similarity_query(query) and not self._reference_query_terms(query)
@@ -2312,6 +2461,106 @@ class DocumentService:
                 return self._summarize_products_for_documents(matching_documents)
 
         return None
+
+    def summarize_document_code_functions(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        document = self.resolve_primary_document(
+            query,
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if document is None:
+            return None
+
+        functions = self._extract_code_function_names(document)
+        if not functions:
+            return f"I could not find clear function declarations in {document.original_name}."
+
+        return (
+            f"The function names in {document.original_name} include "
+            f"{self._join_phrases(functions[:5])}."
+        )
+
+    def summarize_document_risks(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        return self._summarize_document_findings(
+            query=query,
+            category="risk",
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+
+    def summarize_document_actions(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        return self._summarize_document_findings(
+            query=query,
+            category="action",
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+
+    def summarize_document_decisions(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        return self._summarize_document_findings(
+            query=query,
+            category="decision",
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+
+    def summarize_document_deadlines(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        return self._summarize_document_findings(
+            query=query,
+            category="deadline",
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
 
     def summarize_similar_documents(
         self,
@@ -4236,6 +4485,250 @@ class DocumentService:
                 f" {len(empty_documents)} related documents only expose totals or status without item details."
             )
         return response
+
+    def _summarize_document_findings(
+        self,
+        *,
+        query: str,
+        category: str,
+        history: list[ChatHistoryMessage] | None,
+        allowed_document_ids: list[str] | None,
+        is_admin: bool,
+        viewer_username: str | None,
+    ) -> str | None:
+        label = self._finding_label(category)
+        target_document = self.resolve_primary_document(
+            query,
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if target_document is not None:
+            findings = self._extract_document_findings(target_document, category)
+            if findings:
+                return (
+                    f"The clearest {label} in {target_document.original_name} are: "
+                    f"{self._join_phrases(findings[:4])}."
+                )
+            return (
+                f"I did not find clear {label} in {target_document.original_name}."
+            )
+
+        allowed_document_id_set = set(allowed_document_ids or [])
+        documents = [
+            document
+            for document in self._filter_documents_for_viewer(
+                self.list_documents(),
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if document.processing_status == "processed"
+            and (not allowed_document_id_set or document.id in allowed_document_id_set)
+        ]
+        document_findings: list[tuple[DocumentRecord, list[str]]] = []
+        for document in documents:
+            findings = self._extract_document_findings(document, category)
+            if findings:
+                document_findings.append((document, findings))
+
+        if not document_findings:
+            return f"I did not find clear {label} in the uploaded documents."
+
+        leading_details = "; ".join(
+            f"{document.original_name}: {findings[0]}"
+            for document, findings in document_findings[:4]
+        )
+        if len(document_findings) == 1:
+            return f"I found {label} in {leading_details}."
+
+        extra_count = len(document_findings) - 4
+        suffix = f", plus {extra_count} more documents" if extra_count > 0 else ""
+        return (
+            f"I found {label} in {len(document_findings)} documents: "
+            f"{leading_details}{suffix}."
+        )
+
+    def _extract_code_function_names(self, document: DocumentRecord) -> list[str]:
+        extracted_text = self._normalize_text_fragment(self.get_extracted_text(document.id))
+        if not extracted_text:
+            return []
+
+        patterns = (
+            r"(?m)^\s*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+            r"(?m)^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+            r"(?m)^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s*)?\(",
+        )
+        names: list[str] = []
+        seen: set[str] = set()
+        for pattern in patterns:
+            for match in re.finditer(pattern, extracted_text):
+                name = match.group(1).strip()
+                if not name or name in seen:
+                    continue
+                seen.add(name)
+                names.append(name)
+        return names
+
+    def _extract_document_findings(
+        self,
+        document: DocumentRecord,
+        category: str,
+        limit: int = 6,
+    ) -> list[str]:
+        extracted_text = self._normalize_text_fragment(self.get_extracted_text(document.id))
+        if not extracted_text:
+            return []
+
+        keywords = self._finding_keywords(category)
+        if not keywords:
+            return []
+
+        candidates: list[tuple[int, int, str]] = []
+        for index, candidate in enumerate(self._document_finding_candidates(extracted_text)):
+            normalized = " ".join(self._strip_accents(candidate).lower().split())
+            score = sum(1 for keyword in keywords if keyword in normalized)
+            if category == "deadline" and self._contains_date_or_duration(normalized):
+                score += 2
+            if category == "decision" and re.search(r"\b(?:approved|accepted|rejected|selected|decided)\b", normalized):
+                score += 1
+            if score <= 0:
+                continue
+            candidates.append((score, index, candidate))
+
+        candidates.sort(key=lambda item: (-item[0], item[1]))
+        findings: list[str] = []
+        seen: set[str] = set()
+        for _score, _index, candidate in candidates:
+            cleaned = self._clean_finding_text(candidate)
+            normalized_cleaned = self._strip_accents(cleaned).lower()
+            if not cleaned or normalized_cleaned in seen:
+                continue
+            seen.add(normalized_cleaned)
+            findings.append(cleaned)
+            if len(findings) >= limit:
+                break
+
+        return findings
+
+    def _document_finding_candidates(self, text: str) -> list[str]:
+        normalized_text = text.replace("\r", "\n")
+        candidates: list[str] = []
+        for line in normalized_text.splitlines():
+            cleaned = " ".join(line.split()).strip(" -:")
+            if 8 <= len(cleaned) <= 280:
+                candidates.append(cleaned)
+
+        paragraph_text = " ".join(normalized_text.split())
+        for sentence in re.split(r"(?<=[.!?])\s+|;\s+", paragraph_text):
+            cleaned = " ".join(sentence.split()).strip(" -:")
+            if 8 <= len(cleaned) <= 280:
+                candidates.append(cleaned)
+
+        return candidates
+
+    def _finding_keywords(self, category: str) -> tuple[str, ...]:
+        if category == "risk":
+            return (
+                "risk",
+                "issue",
+                "incident",
+                "problem",
+                "blocker",
+                "blocked",
+                "failure",
+                "failed",
+                "vulnerability",
+                "concern",
+                "delayed",
+                "overdue",
+                "threshold",
+                "quarantine",
+                "quarantined",
+                "risker",
+                "forsenad",
+                "beroende",
+            )
+        if category == "action":
+            return (
+                "action",
+                "todo",
+                "to do",
+                "follow up",
+                "next step",
+                "recommendation",
+                "recommend",
+                "replace",
+                "review",
+                "must",
+                "should",
+                "required",
+                "owner",
+                "assigned",
+                "submit",
+                "submitted",
+                "atgard",
+                "nasta steg",
+                "ansvarig",
+            )
+        if category == "decision":
+            return (
+                "decision",
+                "decided",
+                "approved",
+                "approval",
+                "accepted",
+                "rejected",
+                "selected",
+                "agreed",
+                "chosen",
+                "go/no-go",
+                "beslut",
+                "godkand",
+            )
+        if category == "deadline":
+            return (
+                "deadline",
+                "due",
+                "due date",
+                "valid until",
+                "expires",
+                "expiry",
+                "renewal",
+                "within",
+                "notice",
+                "lead time",
+                "submitted within",
+                "forfall",
+                "giltig",
+                "senast",
+            )
+        return ()
+
+    def _finding_label(self, category: str) -> str:
+        if category == "risk":
+            return "risk markers"
+        if category == "action":
+            return "action items"
+        if category == "decision":
+            return "decision markers"
+        if category == "deadline":
+            return "deadline markers"
+        return "findings"
+
+    def _contains_date_or_duration(self, value: str) -> bool:
+        return bool(
+            re.search(
+                r"\b\d{4}-\d{2}-\d{2}\b|\b\d{1,3}\s+(?:business\s+)?(?:days?|weeks?|months?)\b|\b(?:seven|fourteen|thirty|sixty|twenty[- ]one)\s+days?\b",
+                value,
+            )
+        )
+
+    def _clean_finding_text(self, value: str) -> str:
+        cleaned = " ".join(str(value or "").split()).strip(" .,:;")
+        if len(cleaned) > 220:
+            cleaned = f"{cleaned[:217].rstrip()}..."
+        return cleaned
 
     def _document_entity_fragment(
         self,

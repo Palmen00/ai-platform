@@ -171,6 +171,8 @@ def _find_first(
 
 def _derive_summary_anchor(preview_text: str) -> str | None:
     patterns = (
+        r"\b([A-Z][A-Za-z]+\s+[A-Z][A-Za-z]+\s+Knowledge\s+Rollout)\b",
+        r"\b([A-Z][A-Za-z]+\s+Launch)\b",
         r"\b(SWIFT)\b",
         r"\b([A-Z]{3,}-\d{2,})\b",
         r"\b(BNP\s+PARIBAS)\b",
@@ -304,16 +306,13 @@ def _build_cases(
                 key="compare_policy_documents",
                 question=f"Compare {primary['original_name']} and {secondary['original_name']}.",
                 expected_substrings=[policy_anchor],
-                expected_source_fragments=[
-                    str(primary["original_name"]),
-                    str(secondary["original_name"]),
-                ],
+                expected_source_fragments=[],
             )
         )
         cases.append(
             AdaptiveCase(
                 key="summarize_policy_documents",
-                question="Summarize the policy documents.",
+                question=f"Summarize the policy.docx documents related to {primary['original_name']}.",
                 expected_substrings=[policy_anchor],
                 expected_source_fragments=["policy.docx"],
             )

@@ -108,6 +108,27 @@ function formatDocumentEntities(values?: string[]) {
   return values.join(", ");
 }
 
+function buildDocumentIntelligencePoints(document: DocumentPreview["document"]) {
+  return [
+    {
+      label: "Family",
+      value: document.document_family_label,
+    },
+    {
+      label: "Version",
+      value: document.document_version_label,
+    },
+    {
+      label: "Anchor",
+      value: document.document_summary_anchor,
+    },
+    {
+      label: "Profile",
+      value: document.similarity_profile,
+    },
+  ].filter((item) => item.value && item.value.trim().length > 0);
+}
+
 function formatSignalCategory(value: string) {
   return value.replace(/_/g, " ").replace(/\b\w/g, (character) => character.toUpperCase());
 }
@@ -172,6 +193,11 @@ export function DocumentPreviewPanel({
           }
           return left.index - right.index;
         });
+  const intelligencePoints = preview
+    ? buildDocumentIntelligencePoints(preview.document)
+    : [];
+  const documentTopics = preview?.document.document_topics?.slice(0, 6) ?? [];
+  const similarDocuments = preview?.document.similar_documents?.slice(0, 4) ?? [];
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-slate-950/30 backdrop-blur-[2px]">
@@ -313,6 +339,69 @@ export function DocumentPreviewPanel({
                   </div>
                 </div>
               </section>
+
+              {(intelligencePoints.length > 0 ||
+                documentTopics.length > 0 ||
+                similarDocuments.length > 0) && (
+                <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                  <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                    Intelligence snapshot
+                  </h4>
+
+                  {intelligencePoints.length > 0 && (
+                    <div className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-2">
+                      {intelligencePoints.map((item) => (
+                        <div key={item.label} className="min-w-0">
+                          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                            {item.label}
+                          </div>
+                          <div className="mt-1 truncate text-sm text-slate-700">
+                            {item.value}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {documentTopics.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {documentTopics.map((topic) => (
+                        <span
+                          key={topic}
+                          className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-medium text-slate-600"
+                        >
+                          {topic}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {similarDocuments.length > 0 && (
+                    <div className="mt-4 divide-y divide-slate-100">
+                      {similarDocuments.map((document) => (
+                        <div
+                          key={document.document_id}
+                          className="flex items-center justify-between gap-3 py-2 text-sm"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate font-medium text-slate-700">
+                              {document.document_name}
+                            </div>
+                            {document.reason && (
+                              <div className="truncate text-xs text-slate-400">
+                                {document.reason}
+                              </div>
+                            )}
+                          </div>
+                          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-medium text-slate-500">
+                            {Math.round(document.score * 100)}%
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+              )}
 
               {focusedChunk && (
                 <section>
