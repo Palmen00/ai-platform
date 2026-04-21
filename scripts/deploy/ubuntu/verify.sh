@@ -36,7 +36,11 @@ wait_for_http "http://127.0.0.1:${QDRANT_PORT:-6333}/collections" "Qdrant"
 if [[ "${INSTALL_LOCAL_OLLAMA:-false}" == "true" ]]; then
   wait_for_http "http://127.0.0.1:11434/api/tags" "Local Ollama"
 else
-  wait_for_http "${OLLAMA_BASE_URL:-http://127.0.0.1:11434}/api/tags" "External Ollama"
+  ollama_verify_url="${OLLAMA_BASE_URL:-http://127.0.0.1:11434}"
+  # host.docker.internal is valid inside containers; verify.sh runs on the host.
+  ollama_verify_url="${ollama_verify_url/http:\/\/host.docker.internal:/http:\/\/127.0.0.1:}"
+  ollama_verify_url="${ollama_verify_url/https:\/\/host.docker.internal:/https:\/\/127.0.0.1:}"
+  wait_for_http "${ollama_verify_url}/api/tags" "External Ollama"
 fi
 
 run_deploy_compose exec -T backend tesseract --version >/dev/null
