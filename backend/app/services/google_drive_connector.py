@@ -308,7 +308,27 @@ class GoogleDriveConnectorService:
             },
             timeout=30.0,
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = ""
+            try:
+                payload = response.json()
+                detail = str(
+                    payload.get("error_description")
+                    or payload.get("error")
+                    or ""
+                ).strip()
+            except ValueError:
+                detail = response.text.strip()
+            raise ValueError(
+                "Google Drive authentication failed."
+                + (f" {detail}" if detail else "")
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise ValueError(
+                f"Could not reach Google Drive token endpoint: {exc}"
+            ) from exc
         payload = response.json()
         return str(payload.get("access_token", "")).strip()
 

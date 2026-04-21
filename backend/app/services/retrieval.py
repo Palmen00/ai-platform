@@ -27,6 +27,7 @@ class RetrievalService:
         query: str,
         limit: int = 4,
         allowed_document_ids: list[str] | None = None,
+        history: list | None = None,
         is_admin: bool = False,
         viewer_username: str | None = None,
     ) -> RetrievalResult:
@@ -56,6 +57,16 @@ class RetrievalService:
             is_admin=is_admin,
             viewer_username=viewer_username,
         )
+        if not matched_document_ids:
+            matched_document_ids = self.document_service.resolve_follow_up_document_ids(
+                query,
+                history=history,
+                allowed_document_ids=requested_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+        if matched_document_ids and self.document_service.is_document_content_question(query):
+            document_reference = True
         metadata_matched_documents = self.document_service.find_documents_by_metadata(
             query,
             allowed_document_ids=requested_document_ids,
@@ -83,6 +94,9 @@ class RetrievalService:
         if (
             self.document_service.is_document_inventory_query(query)
             or self.document_service.is_document_similarity_query(query)
+            or self.document_service.is_document_version_query(query)
+            or self.document_service.is_document_change_query(query)
+            or self.document_service.is_document_conflict_query(query)
             or (
                 self.document_service.is_document_metadata_inventory_query(query)
                 and not self.document_service.is_document_content_question(query)
@@ -194,6 +208,41 @@ class RetrievalService:
                     selected_sources = []
                     retrieval_mode = "none"
 
+        if (
+            matched_document_ids
+            and self.document_service.is_document_content_question(query)
+        ):
+            focused_sources = [
+                source
+                for source in selected_sources
+                if source.document_id in matched_document_ids[:2]
+            ]
+            if focused_sources:
+                selected_sources = focused_sources[:limit]
+            elif matched_document_ids:
+                selected_sources = self.document_service.recent_sources_for_document_ids(
+                    matched_document_ids[:2],
+                    limit=limit,
+                    is_admin=is_admin,
+                    viewer_username=viewer_username,
+                )
+                if selected_sources:
+                    retrieval_mode = "term"
+
+        if (
+            not selected_sources
+            and matched_document_ids
+            and self.document_service.is_document_content_question(query)
+        ):
+            selected_sources = self.document_service.recent_sources_for_document_ids(
+                matched_document_ids[:2],
+                limit=limit,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if selected_sources:
+                retrieval_mode = "term"
+
         confidence = self._confidence_level(
             query=query,
             sources=selected_sources,
@@ -229,6 +278,58 @@ class RetrievalService:
         is_admin: bool = False,
         viewer_username: str | None = None,
     ) -> str | None:
+        if self.document_service.is_largest_document_query(query):
+            return self.document_service.summarize_largest_document(
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
+        if self.document_service.is_document_upload_time_query(query):
+            return self.document_service.summarize_document_upload_time(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
+        if self.document_service.is_signed_document_query(query):
+            return self.document_service.summarize_signed_documents(
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
+        if self.document_service.is_document_kind_confirmation_query(query):
+            return self.document_service.summarize_document_kind_confirmation(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
+        if self.document_service.is_document_entity_detail_query(query):
+            entity_answer = self.document_service.summarize_document_companies(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if entity_answer:
+                return entity_answer
+
+        if self.document_service.is_document_product_query(query):
+            product_answer = self.document_service.summarize_document_products(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if product_answer:
+                return product_answer
+
         if not (
             self.document_service.is_document_reference_query(query)
             or self.document_service.is_document_metadata_inventory_query(query)
@@ -237,12 +338,28 @@ class RetrievalService:
             return None
 
         if self.document_service.is_document_inventory_query(query):
-            document_names = self.document_service.list_uploaded_document_names(
+            documents = self.document_service.list_uploaded_documents(
                 is_admin=is_admin,
                 viewer_username=viewer_username,
             )
-            if not document_names:
+            if not documents:
                 return "You have not uploaded any documents yet."
+
+            document_names = [document.original_name for document in documents]
+
+            if self.document_service.is_recent_document_inventory_query(query):
+                latest_document = documents[0]
+                if len(documents) == 1:
+                    return (
+                        "Your most recently uploaded document is "
+                        f"{latest_document.original_name}."
+                    )
+
+                return (
+                    "Your most recently uploaded document is "
+                    f"{latest_document.original_name}. "
+                    f"The next most recent document is {documents[1].original_name}."
+                )
 
             if len(document_names) == 1:
                 return f"You currently have one uploaded document: {document_names[0]}."
@@ -269,6 +386,25 @@ class RetrievalService:
                 viewer_username=viewer_username,
             )
 
+        if self.document_service.is_document_version_query(query):
+            return self.document_service.summarize_document_versions(
+                query=query,
+                history=history,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
+        if (
+            self.document_service.is_document_change_query(query)
+            or self.document_service.is_document_conflict_query(query)
+        ):
+            return self.document_service.summarize_document_changes(
+                query=query,
+                history=history,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
         if self.document_service.is_document_entity_inventory_query(query):
             return self.document_service.summarize_document_entities_by_metadata(
                 query,
@@ -288,13 +424,24 @@ class RetrievalService:
                 viewer_username=viewer_username,
             )
 
+        generic_document_summary = self._summarize_generic_document_content(
+            query=query,
+            sources=sources,
+            allowed_document_ids=allowed_document_ids,
+            history=history,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if generic_document_summary:
+            return generic_document_summary
+
         if self.document_service.is_document_type_query(query) and sources:
             primary_source = sources[0]
             document_type = self._infer_document_type(primary_source)
             if document_type:
-                prefix = "It appears to be"
+                prefix = "This looks like"
                 if primary_source.ocr_used:
-                    prefix = "It looks like a scanned"
+                    prefix = "This looks like a scanned"
                     if document_type.lower().startswith(("a ", "an ", "the ")):
                         document_type = document_type.split(" ", 1)[1]
 
@@ -333,8 +480,8 @@ class RetrievalService:
                 summary = self._summarize_source_for_topic(unique_sources[0], topic_terms)
                 if summary:
                     caveat = self._ocr_caveat(unique_sources[0], document_count)
-                    return f"Yes. {summary}{caveat}"
-                return f"Yes. {unique_sources[0].document_name} mentions {lead_term}."
+                    return f"{summary}{caveat}"
+                return f"{unique_sources[0].document_name} mentions {lead_term}."
 
             source_lines = []
             for source in unique_sources[:2]:
@@ -342,13 +489,266 @@ class RetrievalService:
                 if summary:
                     source_lines.append(summary)
 
-            lead = f"Yes. {lead_term.capitalize()} appears in {document_count} of your uploaded documents."
+            lead = f"{lead_term.capitalize()} appears in {document_count} of your uploaded documents."
             if not source_lines:
                 return lead
 
             caveat = self._ocr_caveat(unique_sources[0], document_count)
             return f"{lead} {' '.join(source_lines)}{caveat}"
         return None
+
+    def _summarize_generic_document_content(
+        self,
+        *,
+        query: str,
+        sources: list[ChatSource],
+        allowed_document_ids: list[str] | None,
+        history: list | None,
+        is_admin: bool,
+        viewer_username: str | None,
+    ) -> str | None:
+        if not self._is_generic_document_summary_query(query):
+            return None
+
+        resolved_ids = self.document_service.find_referenced_documents(
+            query,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if not resolved_ids:
+            resolved_ids = self.document_service.resolve_follow_up_document_ids(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+        if not resolved_ids and sources:
+            resolved_ids = [sources[0].document_id]
+        if not resolved_ids:
+            return None
+
+        document = self.document_service.get_document_for_viewer(
+            resolved_ids[0],
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if document is None:
+            return None
+
+        document_sources = [
+            source for source in sources if source.document_id == document.id
+        ]
+        if not document_sources:
+            document_sources = self.document_service.recent_sources_for_document_ids(
+                [document.id],
+                limit=2,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
+        details: list[str] = []
+        title = (document.document_title or "").strip()
+        if self._is_clean_title(title, document.original_name):
+            details.append(f'The detected title is "{title}".')
+
+        topic_terms = [
+            topic
+            for topic in document.document_topics
+            if (
+                topic
+                and topic.lower() != (document.detected_document_type or "").lower()
+                and self._is_clean_summary_term(topic)
+            )
+        ]
+        if topic_terms:
+            details.append(
+                "It mainly covers " + self._join_phrases(topic_terms[:3]) + "."
+            )
+
+        clean_entities = [
+            entity for entity in document.document_entities if self._is_clean_entity_label(entity)
+        ]
+        if clean_entities:
+            details.append(
+                "Key entities include "
+                + self._join_phrases(clean_entities[:2])
+                + "."
+            )
+        elif document.document_summary_anchor:
+            details.append(
+                f"A notable marker in the document is {document.document_summary_anchor}."
+            )
+
+        details.extend(self._document_source_highlights(document_sources))
+        return " ".join(
+            sentence
+            for sentence in [self._build_document_summary_lead(document, document_sources), *details]
+            if sentence
+        ).strip()
+
+    def _is_generic_document_summary_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        if not self.document_service.is_document_reference_query(query):
+            return False
+        if self.document_service.is_document_topic_presence_query(query):
+            return False
+        if self.document_service.is_document_type_query(query):
+            return False
+
+        blocked_markers = (
+            "mention",
+            "mentions",
+            "mentioned",
+            "contains",
+            "contain",
+            "title",
+            "date",
+            "owner",
+            "port",
+            "amount",
+            "code",
+            "latest",
+            "version",
+            "compare",
+            "difference",
+            "changed",
+            "change",
+            "conflict",
+            "similar",
+            "which ",
+            "who ",
+            "when ",
+            "where ",
+        )
+        if any(marker in lowered for marker in blocked_markers):
+            return False
+
+        summary_markers = (
+            "what is it about",
+            "what is this about",
+            "what is that about",
+            "tell me about",
+            "summarize",
+            "summary of",
+            "describe",
+            "explain",
+        )
+        if any(marker in lowered for marker in summary_markers):
+            return True
+
+        return " about" in lowered
+
+    def _build_document_summary_lead(self, document, sources: list[ChatSource]) -> str:
+        document_type = self._document_type_label(document, sources)
+        if document_type == "document":
+            return f"{document.original_name} is a document in your knowledge base."
+        return f"{document.original_name} is {self._with_indefinite_article(document_type)}."
+
+    def _document_type_label(self, document, sources: list[ChatSource]) -> str:
+        detected = (document.detected_document_type or "").strip().lower()
+        source_kind = (document.source_kind or "").strip().lower()
+        if detected and detected != "document":
+            return detected
+
+        if sources:
+            inferred = self._infer_document_type(sources[0])
+            if inferred and len(inferred.split()) <= 6:
+                return inferred
+
+        source_kind_labels = {
+            "spreadsheet": "spreadsheet",
+            "presentation": "presentation",
+            "word": "word document",
+            "markdown": "markdown document",
+            "text": "text document",
+            "json": "JSON document",
+            "csv": "CSV document",
+            "config": "configuration file",
+            "code": "code file",
+            "image": "image document",
+            "pdf": "PDF document",
+        }
+        return source_kind_labels.get(source_kind, "document")
+
+    def _document_source_highlights(self, sources: list[ChatSource]) -> list[str]:
+        highlights: list[str] = []
+        for index, source in enumerate(sources[:2]):
+            summary = self._summarize_source_excerpt(source, max_characters=190)
+            if not summary:
+                continue
+            location = self._format_source_location(source)
+            lead = "One retrieved section"
+            if index == 1:
+                lead = "Another section"
+            if location:
+                lead += f" ({location})"
+            sentence = f"{lead} mentions {summary}"
+            if source.ocr_used:
+                sentence += self._ocr_caveat(source, 1)
+            highlights.append(sentence)
+        return highlights
+
+    def _join_phrases(self, values: list[str]) -> str:
+        items = [str(value).strip() for value in values if str(value).strip()]
+        if not items:
+            return ""
+        if len(items) == 1:
+            return items[0]
+        if len(items) == 2:
+            return f"{items[0]} and {items[1]}"
+        return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+    def _with_indefinite_article(self, value: str) -> str:
+        lowered = value.strip().lower()
+        if not lowered:
+            return value
+        article = "an" if lowered[0] in {"a", "e", "i", "o", "u"} else "a"
+        return f"{article} {value}"
+
+    def _is_clean_title(self, value: str, document_name: str) -> bool:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            return False
+        if cleaned.lower() in document_name.lower():
+            return False
+        if len(cleaned) < 5 or len(cleaned) > 80:
+            return False
+        if any(token in cleaned.lower() for token in ("swift", "bic", "iban", "vat")):
+            return False
+        if re.search(r"\d{4,}|[/\\|]{1,}", cleaned):
+            return False
+        return self._alpha_ratio(cleaned) >= 0.72
+
+    def _is_clean_summary_term(self, value: str) -> bool:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            return False
+        if cleaned[0].isdigit():
+            return False
+        if re.search(r"[/\\|]", cleaned):
+            return False
+        if len(cleaned) > 40:
+            return False
+        return self._alpha_ratio(cleaned) >= 0.68
+
+    def _is_clean_entity_label(self, value: str) -> bool:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            return False
+        if re.search(r"\d|[/\\|]", cleaned):
+            return False
+        if len(cleaned.split()) < 2:
+            return False
+        return self._alpha_ratio(cleaned) >= 0.72
+
+    def _alpha_ratio(self, value: str) -> float:
+        meaningful = [character for character in value if not character.isspace()]
+        if not meaningful:
+            return 0.0
+        alpha_count = sum(character.isalpha() for character in meaningful)
+        return alpha_count / len(meaningful)
 
     def _semantic_sources(
         self,

@@ -275,6 +275,27 @@ class Settings:
             "yes",
             "on",
         }
+        self.idle_maintenance_enabled = os.getenv(
+            "IDLE_MAINTENANCE_ENABLED",
+            "true",
+        ).lower() in {
+            "1",
+            "true",
+            "yes",
+            "on",
+        }
+        self.idle_maintenance_poll_seconds = max(
+            15,
+            int(os.getenv("IDLE_MAINTENANCE_POLL_SECONDS", "45")),
+        )
+        self.idle_maintenance_user_idle_seconds = max(
+            60,
+            int(os.getenv("IDLE_MAINTENANCE_USER_IDLE_SECONDS", "240")),
+        )
+        self.idle_maintenance_batch_size = max(
+            1,
+            int(os.getenv("IDLE_MAINTENANCE_BATCH_SIZE", "1")),
+        )
         self.ollama_embed_batch_size = max(
             1,
             int(os.getenv("OLLAMA_EMBED_BATCH_SIZE", "8")),

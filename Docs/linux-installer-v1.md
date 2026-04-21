@@ -328,6 +328,8 @@ Suggested defaults:
 - normal retrieval and indexing settings
 - OCR enabled
 - moderate concurrency
+- idle document intelligence maintenance enabled
+- conservative idle window before background enrichment starts
 - `LOW_IMPACT_MODE=false`
 
 ### High Performance
@@ -417,6 +419,7 @@ Recommended runtime shape:
 - qdrant container
 - OCR helper image available locally for backend-triggered OCRmyPDF jobs
 - optional local Ollama service on host or external Ollama connection
+- idle maintenance enabled so older documents can be enriched after install without reprocessing everything at once
 
 The installer should also ensure:
 

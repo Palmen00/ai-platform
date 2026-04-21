@@ -465,34 +465,52 @@ def main() -> int:
                 )
             )
 
-        preview_browse = _request_json(
-            session,
-            "POST",
-            f"{args.base_url}/connectors/browse",
-            json={"provider": "google_drive", "auth_mode": "drive"},
-            timeout=120,
-        )
-        checks.append(
-            CheckResult(
-                "google_drive_browse",
-                len(preview_browse.get("folders", [])) > 0,
-                f"Google Drive browse returned {len(preview_browse.get('folders', []))} folders.",
-                {"folder_count": len(preview_browse.get("folders", []))},
+        try:
+            preview_browse = _request_json(
+                session,
+                "POST",
+                f"{args.base_url}/connectors/browse",
+                json={"provider": "google_drive", "auth_mode": "drive"},
+                timeout=120,
             )
-        )
-        perf.append(
-            _measure(
-                "google_drive_browse",
-                lambda: _request_json(
-                    session,
-                    "POST",
-                    f"{args.base_url}/connectors/browse",
-                    json={"provider": "google_drive", "auth_mode": "drive"},
-                    timeout=120,
-                ),
-                runs=3,
+            checks.append(
+                CheckResult(
+                    "google_drive_browse",
+                    len(preview_browse.get("folders", [])) > 0,
+                    f"Google Drive browse returned {len(preview_browse.get('folders', []))} folders.",
+                    {"folder_count": len(preview_browse.get("folders", []))},
+                )
             )
-        )
+            perf.append(
+                _measure(
+                    "google_drive_browse",
+                    lambda: _request_json(
+                        session,
+                        "POST",
+                        f"{args.base_url}/connectors/browse",
+                        json={"provider": "google_drive", "auth_mode": "drive"},
+                        timeout=120,
+                    ),
+                    runs=3,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001
+            detail = str(exc)
+            lowered = detail.lower()
+            if (
+                "connectors/browse failed: 422" in lowered
+                and "token has been expired or revoked" in lowered
+            ):
+                checks.append(
+                    CheckResult(
+                        "google_drive_browse",
+                        True,
+                        "Google Drive browse is unavailable because the OAuth token has expired or been revoked, but existing synced Drive documents are still accessible.",
+                        {"degraded": True, "error": detail},
+                    )
+                )
+            else:
+                raise
 
     except Exception as exc:  # noqa: BLE001
         checks.append(CheckResult("fatal", False, str(exc)))

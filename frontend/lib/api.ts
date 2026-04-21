@@ -105,6 +105,68 @@ export type DocumentSignal = {
   source?: string | null;
 };
 
+export type DocumentSimilarityMatch = {
+  document_id: string;
+  document_name: string;
+  score: number;
+  shared_terms: string[];
+  reason?: string | null;
+};
+
+export type DocumentFamilyMember = {
+  document_id: string;
+  document_name: string;
+  document_date?: string | null;
+  version_label?: string | null;
+  uploaded_at?: string | null;
+};
+
+export type DocumentFamilySummary = {
+  family_key: string;
+  family_label: string;
+  document_count: number;
+  latest_document_id: string;
+  latest_document_name: string;
+  latest_document_date?: string | null;
+  topics: string[];
+  members: DocumentFamilyMember[];
+};
+
+export type DocumentIntelligenceSummary = {
+  total_documents: number;
+  processed_documents: number;
+  profile_ready_documents: number;
+  family_ready_documents: number;
+  versioned_documents: number;
+  topic_ready_documents: number;
+  total_families: number;
+  stale_documents: number;
+};
+
+export type DocumentMaintenanceStatus = {
+  enabled: boolean;
+  poll_seconds: number;
+  user_idle_seconds: number;
+  batch_size: number;
+  last_run_at?: string | null;
+  pending_documents: number;
+  seconds_since_user_activity: number;
+  active_jobs: Record<string, number>;
+};
+
+export type DocumentIntelligenceResponse = {
+  summary: DocumentIntelligenceSummary;
+  maintenance: DocumentMaintenanceStatus;
+  families: DocumentFamilySummary[];
+  stale_documents: DocumentFamilyMember[];
+};
+
+export type DocumentIntelligenceRefreshResponse = {
+  refreshed_document_ids: string[];
+  refreshed_count: number;
+  status: DocumentIntelligenceResponse;
+};
+
 export type RetrievalDebug = {
   mode: "none" | "hybrid" | "semantic" | "term";
   query_terms: string[];
@@ -169,6 +231,16 @@ export type DocumentItem = {
   document_date?: string | null;
   document_date_label?: string | null;
   document_date_kind?: string | null;
+  document_family_key?: string | null;
+  document_family_label?: string | null;
+  document_version_label?: string | null;
+  document_version_number?: number | null;
+  document_topics?: string[];
+  document_summary_anchor?: string | null;
+  similarity_profile?: string | null;
+  similarity_terms?: string[];
+  similar_documents?: DocumentSimilarityMatch[];
+  similarity_updated_at?: string | null;
   processing_status: string;
   processing_stage: string;
   processing_started_at?: string | null;
@@ -460,6 +532,8 @@ export type SystemStatusResponse = {
   qdrant: DependencyStatus;
   storage: StorageStatus;
   recovery: RecoveryStatus;
+  document_intelligence: DocumentIntelligenceSummary;
+  maintenance: DocumentMaintenanceStatus;
 };
 
 export type LogEvent = {
@@ -732,6 +806,33 @@ export async function getConnectors(): Promise<ConnectorsResponse> {
 
   if (!response.ok) {
     throw new Error("Failed to fetch connectors");
+  }
+
+  return response.json();
+}
+
+export async function getDocumentIntelligence(): Promise<DocumentIntelligenceResponse> {
+  const response = await fetch(`${API_BASE_URL}/documents/intelligence`, withAdminHeaders({
+    cache: "no-store",
+  }));
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch document intelligence");
+  }
+
+  return response.json();
+}
+
+export async function refreshDocumentIntelligence(): Promise<DocumentIntelligenceRefreshResponse> {
+  const response = await fetch(
+    `${API_BASE_URL}/documents/intelligence/refresh`,
+    withAdminHeaders({
+      method: "POST",
+    })
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to refresh document intelligence");
   }
 
   return response.json();

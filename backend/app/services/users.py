@@ -20,8 +20,11 @@ class UserService:
         if not self.users_path.exists():
             return []
 
-        with self.users_path.open("r", encoding="utf-8") as file_handle:
-            payload = json.load(file_handle)
+        try:
+            with self.users_path.open("r", encoding="utf-8") as file_handle:
+                payload = json.load(file_handle)
+        except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+            return []
 
         if not isinstance(payload, list):
             return []
@@ -198,10 +201,18 @@ class UserService:
 
     def _write_users(self, users: list[LocalUserRecord]) -> None:
         self.users_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.users_path.open("w", encoding="utf-8") as file_handle:
-            json.dump(
-                [user.model_dump() for user in users],
-                file_handle,
-                ensure_ascii=True,
-                indent=2,
-            )
+        temp_path = self.users_path.with_name(
+            f".{self.users_path.name}.{uuid4().hex}.tmp"
+        )
+        try:
+            with temp_path.open("w", encoding="utf-8") as file_handle:
+                json.dump(
+                    [user.model_dump() for user in users],
+                    file_handle,
+                    ensure_ascii=True,
+                    indent=2,
+                )
+            temp_path.replace(self.users_path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()

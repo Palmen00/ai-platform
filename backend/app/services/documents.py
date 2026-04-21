@@ -6,6 +6,7 @@ from collections import Counter
 from datetime import UTC, datetime
 import unicodedata
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 from difflib import SequenceMatcher
 
@@ -14,10 +15,18 @@ from fastapi import UploadFile
 from app.config import settings
 from app.schemas.document import DocumentRecord
 from app.schemas.document import DocumentFacetOption
+from app.schemas.document import DocumentFamilyMember
+from app.schemas.document import DocumentFamilySummary
+from app.schemas.document import DocumentIntelligenceResponse
+from app.schemas.document import DocumentIntelligenceSummary
+from app.schemas.document import DocumentIntelligenceRefreshResponse
 from app.schemas.document import DocumentSignal
+from app.schemas.document import DocumentSimilarityMatch
+from app.schemas.document import DocumentMaintenanceStatus
 from app.schemas.document import DocumentPreview
 from app.schemas.document import DocumentPreviewChunk
 from app.schemas.chat import ChatHistoryMessage, ChatSource
+from app.services.activity import activity_service
 from app.services.document_processing import DocumentProcessingService
 from app.services.embeddings import EmbeddingService
 from app.services.gliner_service import GLiNEREntityService
@@ -42,7 +51,7 @@ class DocumentService:
     DOCUMENT_TYPE_ALIASES = {
         "invoice": {"invoice", "invoices", "faktura", "fakturor", "fraktura", "frakturor"},
         "contract": {"contract", "contracts", "agreement", "agreements", "avtal", "kontrakt"},
-        "insurance": {"insurance", "insurances", "policy", "policies", "försäkring", "försäkringar"},
+        "insurance": {"insurance", "insurances", "insurance policy", "insurance policies", "försäkring", "försäkringar"},
         "policy": {"policy", "policies"},
         "roadmap": {"roadmap", "roadmaps"},
         "architecture": {"architecture", "architectures", "arkitektur"},
@@ -231,12 +240,76 @@ class DocumentService:
     ) -> list[str]:
         return [
             document.original_name
+            for document in self.list_uploaded_documents(
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+        ]
+
+    def list_uploaded_documents(
+        self,
+        *,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> list[DocumentRecord]:
+        return [
+            document
             for document in self._filter_documents_for_viewer(
                 self.list_documents(),
                 is_admin=is_admin,
                 viewer_username=viewer_username,
             )
         ]
+
+    def get_extracted_text(self, document_id: str) -> str:
+        extracted_path = self.extracted_text_dir / f"{document_id}.txt"
+        if not extracted_path.exists():
+            return ""
+        return extracted_path.read_text(encoding="utf-8")
+
+    def resolve_primary_document(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> DocumentRecord | None:
+        matched_ids: list[str] = []
+        if history and (
+            self._looks_like_follow_up_document_question(query)
+            or self.is_document_kind_confirmation_query(query)
+        ):
+            matched_ids = self.resolve_follow_up_document_ids(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+        if not matched_ids:
+            matched_ids = self.find_referenced_documents(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+        if not matched_ids:
+            matched_ids = self.resolve_follow_up_document_ids(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+        if not matched_ids:
+            return None
+        return self.get_document_for_viewer(
+            matched_ids[0],
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
 
     def find_referenced_documents(
         self,
@@ -246,8 +319,11 @@ class DocumentService:
         viewer_username: str | None = None,
     ) -> list[str]:
         normalized_query = self._normalize_document_name(query)
-        query_terms = set(self.extract_query_terms(query))
+        query_terms = set(self.extract_query_terms(query)) | set(
+            self._reference_query_terms(query)
+        )
         allowed_document_id_set = set(allowed_document_ids or [])
+        exact_matches: list[tuple[float, str]] = []
         ranked_matches: list[tuple[float, str]] = []
 
         for document in self._filter_documents_for_viewer(
@@ -259,7 +335,7 @@ class DocumentService:
                 continue
 
             normalized_name = self._normalize_document_name(document.original_name)
-            name_terms = set(re.findall(r"[a-z0-9]{3,}", normalized_name))
+            name_terms = set(re.findall(r"[a-z0-9]{2,}", normalized_name))
             if not normalized_name or not name_terms:
                 continue
 
@@ -309,10 +385,127 @@ class DocumentService:
             if combined_score < 0.18:
                 continue
 
+            if phrase_match or exact_stem_match:
+                exact_matches.append((combined_score, document.id))
             ranked_matches.append((combined_score, document.id))
+
+        if exact_matches:
+            exact_matches.sort(key=lambda item: item[0], reverse=True)
+            return [document_id for _, document_id in exact_matches]
 
         ranked_matches.sort(key=lambda item: item[0], reverse=True)
         return [document_id for _, document_id in ranked_matches]
+
+    def resolve_follow_up_document_ids(
+        self,
+        query: str,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> list[str]:
+        if not history:
+            return []
+
+        visible_documents = self.list_uploaded_documents(
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        allowed_document_id_set = set(allowed_document_ids or [])
+        visible_document_map = {
+            document.id: document
+            for document in visible_documents
+            if not allowed_document_id_set or document.id in allowed_document_id_set
+        }
+        if not visible_document_map:
+            return []
+
+        candidate_ids: list[str] = []
+        constrained_ids = list(visible_document_map.keys())
+        for message in reversed(history[-8:]):
+            for source in message.sources:
+                if (
+                    getattr(source, "document_id", None)
+                    and source.document_id in visible_document_map
+                    and source.document_id not in candidate_ids
+                ):
+                    candidate_ids.append(source.document_id)
+
+            if not message.content:
+                continue
+
+            referenced_ids = self.find_referenced_documents(
+                message.content,
+                allowed_document_ids=constrained_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            for document_id in referenced_ids[:3]:
+                if document_id not in candidate_ids:
+                    candidate_ids.append(document_id)
+
+        if not candidate_ids:
+            return []
+
+        normalized_query = self._normalize_document_name(query)
+        query_terms = set(self._reference_query_terms(query))
+        follow_up_question = self._looks_like_follow_up_document_question(query)
+        ranked_matches: list[tuple[float, str]] = []
+
+        for index, document_id in enumerate(candidate_ids):
+            document = visible_document_map.get(document_id)
+            if document is None:
+                continue
+
+            normalized_name = self._normalize_document_name(document.original_name)
+            name_terms = set(self._reference_query_terms(document.original_name))
+            shared_terms = query_terms & name_terms
+            evidence_score = 0.0
+
+            if normalized_name and normalized_name in normalized_query:
+                evidence_score += 0.9
+            if shared_terms:
+                evidence_score += min(0.72, len(shared_terms) * 0.38)
+            if query_terms and any(term in normalized_name for term in query_terms):
+                evidence_score += 0.16
+            if query_terms and evidence_score == 0.0:
+                continue
+
+            score = evidence_score + max(0.0, 0.18 - (index * 0.02))
+            if follow_up_question:
+                score += 0.08
+
+            if score >= 0.24:
+                ranked_matches.append((score, document_id))
+
+        if ranked_matches:
+            ranked_matches.sort(key=lambda item: item[0], reverse=True)
+            return [document_id for _, document_id in ranked_matches]
+
+        if follow_up_question and candidate_ids:
+            return candidate_ids[:1]
+
+        return []
+
+    def recent_sources_for_document_ids(
+        self,
+        document_ids: list[str],
+        *,
+        limit: int = 4,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> list[ChatSource]:
+        allowed_document_id_set = set(document_ids)
+        processed_documents = [
+            document
+            for document in self.list_uploaded_documents(
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if document.id in allowed_document_id_set
+            and document.processing_status == "processed"
+        ]
+        return self._recent_sources(processed_documents, limit=limit)
 
     def save_upload(self, upload: UploadFile) -> DocumentRecord:
         self._validate_upload_name(Path(upload.filename or "document").name)
@@ -413,8 +606,13 @@ class DocumentService:
         if not metadata_path.exists():
             return None
 
-        with metadata_path.open("r", encoding="utf-8") as file_handle:
-            payload = json.load(file_handle)
+        try:
+            with metadata_path.open("r", encoding="utf-8") as file_handle:
+                payload = json.load(file_handle)
+        except (FileNotFoundError, OSError, json.JSONDecodeError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
 
         return self._enrich_document_metadata(
             self._normalize_document_record(DocumentRecord.model_validate(payload))
@@ -623,6 +821,7 @@ class DocumentService:
         if not file_path.exists():
             raise FileNotFoundError(f"Stored file missing for document {document_id}")
 
+        activity_service.begin_job("document_processing")
         try:
             self._update_processing_stage(document, "extracting")
             extraction_result = self.processing_service.extract_document(
@@ -697,6 +896,20 @@ class DocumentService:
                 document.original_name,
                 document.detected_document_type,
             )
+            document.document_family_key = self._derive_document_family_key(document)
+            document.document_family_label = self._derive_document_family_label(document)
+            (
+                document.document_version_label,
+                document.document_version_number,
+            ) = self._derive_document_version(document)
+            document.document_topics = self._build_document_topics(
+                document,
+                extracted_text=extracted_text,
+            )
+            document.document_summary_anchor = self._derive_document_summary_anchor(
+                document,
+                extracted_text=extracted_text,
+            )
             document.last_processed_at = datetime.now(UTC).isoformat()
             document.processing_error = None
 
@@ -737,6 +950,22 @@ class DocumentService:
                 )
                 document.processing_stage = "completed"
                 document.processing_updated_at = datetime.now(UTC).isoformat()
+
+            try:
+                self._refresh_similarity_cache_for_document(
+                    document,
+                    extracted_text=extracted_text,
+                )
+            except Exception:
+                document.similarity_profile = self._build_document_similarity_profile(
+                    document,
+                    sample_text=extracted_text,
+                )
+                document.similarity_terms = self._build_similarity_terms(
+                    document,
+                    extracted_text=extracted_text,
+                )
+                document.similarity_updated_at = datetime.now(UTC).isoformat()
         except Exception as exc:
             document.processing_status = "failed"
             document.ocr_used = False
@@ -754,6 +983,16 @@ class DocumentService:
             document.document_date = None
             document.document_date_label = None
             document.document_date_kind = None
+            document.document_family_key = None
+            document.document_family_label = None
+            document.document_version_label = None
+            document.document_version_number = None
+            document.document_topics = []
+            document.document_summary_anchor = None
+            document.similarity_profile = None
+            document.similarity_terms = []
+            document.similar_documents = []
+            document.similarity_updated_at = None
             document.last_processed_at = datetime.now(UTC).isoformat()
             document.processing_error = str(exc)
             document.processing_stage = "failed"
@@ -762,9 +1001,108 @@ class DocumentService:
             document.indexed_at = None
             document.indexing_error = None
             self._remove_processing_artifacts(document.id)
+        finally:
+            activity_service.end_job("document_processing")
 
         self._write_metadata(document)
         return document
+
+    def backfill_document_intelligence(
+        self,
+        *,
+        limit: int = 1,
+    ) -> list[DocumentRecord]:
+        refreshed_documents: list[DocumentRecord] = []
+        max_items = max(limit, 1)
+
+        for document in self.list_documents():
+            if not self._needs_background_intelligence_refresh(document):
+                continue
+
+            extracted_path = self.extracted_text_dir / f"{document.id}.txt"
+            if not extracted_path.exists():
+                continue
+
+            extracted_text = extracted_path.read_text(encoding="utf-8")
+            activity_service.begin_job("document_intelligence")
+            try:
+                document = self._enrich_document_metadata(document)
+                self._refresh_similarity_cache_for_document(
+                    document,
+                    extracted_text=extracted_text,
+                )
+                self._write_metadata(document)
+                refreshed_documents.append(document)
+            finally:
+                activity_service.end_job("document_intelligence")
+
+            if len(refreshed_documents) >= max_items:
+                break
+
+        return refreshed_documents
+
+    def count_background_intelligence_backlog(self) -> int:
+        return sum(
+            1
+            for document in self.list_documents()
+            if self._needs_background_intelligence_refresh(document)
+        )
+
+    def get_document_intelligence_status(
+        self,
+        *,
+        maintenance_status: DocumentMaintenanceStatus | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> DocumentIntelligenceResponse:
+        visible_documents = self._filter_documents_for_viewer(
+            self.list_documents(),
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        processed_documents = [
+            document
+            for document in visible_documents
+            if document.processing_status == "processed"
+        ]
+        stale_documents = [
+            document
+            for document in processed_documents
+            if self._needs_background_intelligence_refresh(document)
+        ]
+        family_summaries = self._build_family_summaries(processed_documents)
+        return DocumentIntelligenceResponse(
+            summary=DocumentIntelligenceSummary(
+                total_documents=len(visible_documents),
+                processed_documents=len(processed_documents),
+                profile_ready_documents=sum(
+                    1 for document in processed_documents if document.similarity_profile
+                ),
+                family_ready_documents=sum(
+                    1 for document in processed_documents if document.document_family_key
+                ),
+                versioned_documents=sum(
+                    1 for document in processed_documents if document.document_version_label
+                ),
+                topic_ready_documents=sum(
+                    1 for document in processed_documents if document.document_topics
+                ),
+                total_families=len(family_summaries),
+                stale_documents=len(stale_documents),
+            ),
+            maintenance=maintenance_status or DocumentMaintenanceStatus(),
+            families=family_summaries[:8],
+            stale_documents=[
+                DocumentFamilyMember(
+                    document_id=document.id,
+                    document_name=document.original_name,
+                    document_date=document.document_date,
+                    version_label=document.document_version_label,
+                    uploaded_at=document.uploaded_at,
+                )
+                for document in stale_documents[:8]
+            ],
+        )
 
     def queue_document_processing(self, document_id: str) -> DocumentRecord:
         document = self.get_document(document_id)
@@ -958,7 +1296,38 @@ class DocumentService:
             "vilka filer har jag laddat upp",
             "vilka dokument har jag laddat upp",
         )
-        return any(marker in lowered for marker in inventory_markers)
+        if any(marker in lowered for marker in inventory_markers):
+            return True
+
+        if re.search(
+            r"\b(?:what|which)\s+(?:files?|documents?)\b.*\b(?:upload|uploaded)\b",
+            lowered,
+        ):
+            return True
+
+        if self.is_recent_document_inventory_query(query) and any(
+            marker in lowered
+            for marker in ("upload", "uploaded", "file", "files", "document", "documents")
+        ):
+            return True
+
+        return False
+
+    def is_recent_document_inventory_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        recent_markers = (
+            "latest",
+            "lataste",
+            "most recent",
+            "newest",
+            "last uploaded",
+            "recently uploaded",
+            "senaste",
+            "nyaste",
+            "senast uppladdade",
+            "sist uppladdade",
+        )
+        return any(marker in lowered for marker in recent_markers)
 
     def is_document_metadata_inventory_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
@@ -1008,6 +1377,8 @@ class DocumentService:
             "mention",
             "mentions",
             "mentioned",
+            "summarize",
+            "summary",
             "explain",
             "explains",
             "explained",
@@ -1022,8 +1393,54 @@ class DocumentService:
             "about",
             "contains",
             "contain",
+            "company",
+            "vendor",
+            "supplier",
+            "customer",
+            "products",
+            "product",
+            "items",
+            "item",
+            "ordered",
+            "did i order",
         )
         return any(marker in lowered for marker in content_markers)
+
+    def _looks_like_follow_up_document_question(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        if self.is_document_content_question(query):
+            return True
+        if any(
+            marker in lowered
+            for marker in (
+                "from what",
+                "which company",
+                "what company",
+                "what vendor",
+                "what supplier",
+                "what products",
+                "what product",
+                "what items",
+                "what did i order",
+                "ordered",
+                "asked about before",
+                "asked before",
+                "other invoices",
+                "check again",
+                "that invoice",
+                "that document",
+                "this invoice",
+                "this document",
+                "before",
+            )
+        ):
+            return True
+        return bool(
+            re.search(
+                r"\b(?:it|that|this|them|those|den|det|denna|detta|dem)\b",
+                lowered,
+            )
+        )
 
     def is_document_entity_inventory_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
@@ -1082,6 +1499,59 @@ class DocumentService:
             marker in lowered for marker in similarity_markers
         )
 
+    def is_document_version_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        version_markers = (
+            "latest version",
+            "newest version",
+            "current version",
+            "which version",
+            "version of",
+            "latest policy",
+            "senaste version",
+            "nyaste version",
+            "gallande version",
+        )
+        return self.is_document_reference_query(query) and any(
+            marker in lowered for marker in version_markers
+        )
+
+    def is_document_change_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        change_markers = (
+            "what changed",
+            "what changed between",
+            "difference between",
+            "differences between",
+            "compare",
+            "compare versions",
+            "changed between",
+            "what is different",
+            "ändrades",
+            "skillnad",
+            "jämför",
+        )
+        return self.is_document_reference_query(query) and any(
+            marker in lowered for marker in change_markers
+        )
+
+    def is_document_conflict_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        conflict_markers = (
+            "conflict",
+            "conflicts",
+            "contradict",
+            "contradiction",
+            "mismatch",
+            "inconsistent",
+            "disagree",
+            "motstrid",
+            "konflikt",
+        )
+        return self.is_document_reference_query(query) and any(
+            marker in lowered for marker in conflict_markers
+        )
+
     def is_document_topic_presence_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
         presence_markers = (
@@ -1115,6 +1585,132 @@ class DocumentService:
         return self.is_document_reference_query(query) and any(
             marker in lowered for marker in type_markers
         )
+
+    def is_largest_document_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        size_markers = (
+            "largest",
+            "biggest",
+            "storst",
+            "storsta",
+        )
+        return any(marker in lowered for marker in size_markers) and any(
+            marker in lowered
+            for marker in ("file", "files", "document", "documents", "uploaded", "upload")
+        )
+
+    def is_document_upload_time_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        if "upload" not in lowered and "uploaded" not in lowered:
+            return False
+        if "when" in lowered:
+            return True
+        return any(
+            marker in lowered
+            for marker in (
+                "what time",
+                "which date",
+                "vilket datum",
+                "nar laddade",
+                "när laddade",
+            )
+        )
+
+    def is_signed_document_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        signature_markers = (
+            "signed",
+            "signature",
+            "signatures",
+            "underskr",
+            "signerad",
+            "signerat",
+        )
+        return any(marker in lowered for marker in signature_markers) and any(
+            marker in lowered
+            for marker in ("file", "files", "document", "documents", "uploaded", "upload", "have i", "do i have", "mina", "dokument")
+        )
+
+    def is_document_kind_confirmation_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        requested_type = self.extract_requested_document_type(query)
+        if not requested_type:
+            return False
+        if self.is_document_metadata_inventory_query(query):
+            return False
+        if self.is_document_entity_detail_query(query):
+            return False
+        if self.is_document_product_query(query):
+            return False
+        if re.search(r"^\s*(?:is|was|are|were)\b", lowered):
+            return True
+        return any(
+            marker in lowered
+            for marker in (
+                "asked about before",
+                "asked before",
+                "the one before",
+                "the document before",
+                "the one i asked about before",
+                "the document i asked about before",
+                "then is",
+                "then the document",
+                "is it ",
+                "was it ",
+            )
+        )
+
+    def is_document_entity_detail_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        role_markers = (
+            "company",
+            "vendor",
+            "supplier",
+            "seller",
+            "customer",
+            "client",
+            "organization",
+            "organisation",
+            "party",
+        )
+        return any(marker in lowered for marker in role_markers)
+
+    def is_document_product_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        product_markers = (
+            "product",
+            "products",
+            "item",
+            "items",
+            "order",
+            "ordered",
+            "line item",
+            "did i order",
+        )
+        return any(marker in lowered for marker in product_markers)
+
+    def is_multi_document_product_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        if not self.is_document_product_query(query):
+            return False
+        if not self.extract_requested_document_type(query):
+            return False
+        return any(
+            marker in lowered
+            for marker in (
+                "other ",
+                "all ",
+                "across ",
+                "among ",
+                "multiple ",
+                "many ",
+                "any invoices",
+                "any documents",
+            )
+        )
+
+    def is_broad_similarity_inventory_query(self, query: str) -> bool:
+        return self.is_document_similarity_query(query) and not self._reference_query_terms(query)
 
     def extract_query_terms(self, query: str) -> list[str]:
         return self._query_terms(query)
@@ -1197,12 +1793,44 @@ class DocumentService:
     def extract_requested_document_type(self, query: str) -> str | None:
         lowered = " ".join(query.lower().split())
         matches: list[tuple[int, int, str]] = []
+        ignored_code_phrases = (
+            "incident code",
+            "access code",
+            "error code",
+            "status code",
+            "postal code",
+            "zip code",
+            "country code",
+            "discount code",
+            "tracking code",
+            "reference code",
+        )
+        scanned_media_markers = (
+            "scanned pdf",
+            "scanned image",
+            "scanned photo",
+            "ocr",
+            ".pdf",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".tiff",
+            ".bmp",
+        )
         for document_type, aliases in self.DOCUMENT_TYPE_ALIASES.items():
             if document_type == "document":
                 continue
             for alias in aliases:
                 match = re.search(rf"\b{re.escape(alias)}\b", lowered)
                 if not match:
+                    continue
+                if document_type == "code" and any(
+                    phrase in lowered for phrase in ignored_code_phrases
+                ):
+                    continue
+                if document_type == "code" and any(
+                    marker in lowered for marker in scanned_media_markers
+                ):
                     continue
                 matches.append((match.start(), -len(alias), document_type))
 
@@ -1301,12 +1929,11 @@ class DocumentService:
             if allowed_document_id_set and document.id not in allowed_document_id_set:
                 continue
 
-            if requested_type:
-                if requested_type in {"word", "spreadsheet", "presentation"}:
-                    if (document.source_kind or "document") != requested_type:
-                        continue
-                elif (document.detected_document_type or "document") != requested_type:
-                    continue
+            if requested_type and not self._document_matches_requested_type(
+                document,
+                requested_type,
+            ):
+                continue
 
             if requested_year:
                 if not document.document_date or not document.document_date.startswith(str(requested_year)):
@@ -1317,6 +1944,14 @@ class DocumentService:
 
             matches.append(document)
 
+        matches.sort(
+            key=lambda document: self._metadata_match_sort_key(
+                document,
+                requested_type=requested_type,
+                requested_entity=requested_entity,
+            ),
+            reverse=True,
+        )
         return matches
 
     def summarize_documents_by_metadata(
@@ -1451,6 +2086,224 @@ class DocumentService:
             f"{leading_names}, and {entity_names[-1]}."
         )
 
+    def summarize_largest_document(
+        self,
+        *,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        documents = self.list_uploaded_documents(
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if not documents:
+            return None
+
+        largest_document = max(
+            documents,
+            key=lambda item: (item.size_bytes, item.uploaded_at or ""),
+        )
+        return (
+            f"The largest uploaded document is {largest_document.original_name} at "
+            f"{self._format_size_bytes(largest_document.size_bytes)}."
+        )
+
+    def summarize_document_upload_time(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        document = self.resolve_primary_document(
+            query,
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if document is None:
+            documents = self.list_uploaded_documents(
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if not documents:
+                return None
+            document = documents[0]
+
+        return (
+            f"{document.original_name} was uploaded at "
+            f"{self._format_uploaded_at(document.uploaded_at)}."
+        )
+
+    def summarize_signed_documents(
+        self,
+        *,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        documents = self.list_uploaded_documents(
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if not documents:
+            return None
+
+        candidates = [
+            document
+            for document in documents
+            if self._document_has_signature_markers(document)
+        ]
+        if not candidates:
+            return (
+                "I did not find clear signature markers in your uploaded documents, "
+                "so I cannot confidently confirm any signed documents yet."
+            )
+
+        leading_names = ", ".join(document.original_name for document in candidates[:4])
+        if len(candidates) == 1:
+            return (
+                f"I found one document with signature-related markers: {leading_names}. "
+                "That suggests it may be signed, but I cannot confirm a completed signature from text alone."
+            )
+
+        if len(candidates) <= 4:
+            return (
+                f"I found {len(candidates)} documents with signature-related markers: {leading_names}. "
+                "That suggests they may be signed, but I cannot confirm completed signatures from text alone."
+            )
+
+        return (
+            f"I found {len(candidates)} documents with signature-related markers. "
+            f"The first few are {leading_names}, and {len(candidates) - 4} more. "
+            "That suggests some may be signed, but I cannot confirm completed signatures from text alone."
+        )
+
+    def summarize_document_kind_confirmation(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        requested_type = self.extract_requested_document_type(query)
+        if not requested_type:
+            return None
+
+        document = self.resolve_primary_document(
+            query,
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if document is None:
+            return None
+
+        detected_type = document.detected_document_type or "document"
+        if self._document_matches_requested_type(document, requested_type):
+            return (
+                f"Yes, {document.original_name} is {self._with_indefinite_article(requested_type)}."
+            )
+
+        return (
+            f"No, {document.original_name} looks more like "
+            f"{self._with_indefinite_article(detected_type)}."
+        )
+
+    def summarize_document_companies(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        document = self.resolve_primary_document(
+            query,
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if document is None:
+            return None
+
+        companies = self._document_company_candidates(document)
+        if not companies:
+            return (
+                f"I could not identify clear company names in {document.original_name} yet."
+            )
+
+        return (
+            f"The clearest company names in {document.original_name} are "
+            f"{self._join_phrases(companies[:2])}."
+        )
+
+    def summarize_document_products(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        requested_type = self.extract_requested_document_type(query)
+        if requested_type and self.is_multi_document_product_query(query):
+            matching_documents = self.find_documents_by_metadata(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if matching_documents:
+                lowered = " ".join(query.lower().split())
+                if "other " in lowered:
+                    primary_document = self.resolve_primary_document(
+                        query,
+                        history=history,
+                        allowed_document_ids=allowed_document_ids,
+                        is_admin=is_admin,
+                        viewer_username=viewer_username,
+                    )
+                    if primary_document is not None:
+                        filtered_documents = [
+                            document
+                            for document in matching_documents
+                            if document.id != primary_document.id
+                        ]
+                        if filtered_documents:
+                            matching_documents = filtered_documents
+                return self._summarize_products_for_documents(matching_documents)
+
+        document = self.resolve_primary_document(
+            query,
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if document is not None:
+            return self._summarize_products_for_documents([document])
+
+        if requested_type:
+            matching_documents = self.find_documents_by_metadata(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if matching_documents:
+                return self._summarize_products_for_documents(matching_documents)
+
+        return None
+
     def summarize_similar_documents(
         self,
         query: str | None = None,
@@ -1471,11 +2324,19 @@ class DocumentService:
         if len(processed_documents) < 2:
             return None
 
-        target_document_ids = self._resolve_similarity_target_document_ids(
-            query=query,
-            history=history or [],
-            processed_documents=processed_documents,
-        )
+        if query and self.is_broad_similarity_inventory_query(query):
+            family_summary = self._summarize_duplicate_document_families(
+                processed_documents
+            )
+            if family_summary:
+                return family_summary
+            target_document_ids: list[str] = []
+        else:
+            target_document_ids = self._resolve_similarity_target_document_ids(
+                query=query,
+                history=history or [],
+                processed_documents=processed_documents,
+            )
         if target_document_ids:
             target_documents = [
                 document
@@ -1542,6 +2403,508 @@ class DocumentService:
             f" Other similar pairs include {additional_pairs}."
         )
 
+    def summarize_document_versions(
+        self,
+        query: str | None = None,
+        history: list[ChatHistoryMessage] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        processed_documents = [
+            document
+            for document in self._filter_documents_for_viewer(
+                self.list_documents(),
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if document.processing_status == "processed"
+        ]
+        if not processed_documents:
+            return None
+
+        target_documents = self._resolve_comparison_documents(
+            query=query,
+            history=history or [],
+            processed_documents=processed_documents,
+        )
+        if not target_documents:
+            return None
+
+        family_documents = self._family_documents_for_targets(
+            target_documents,
+            processed_documents,
+        )
+        if len(family_documents) < 2:
+            return (
+                f"I found {target_documents[0].original_name}, but there is only one"
+                " document in that family right now, so I cannot compare versions yet."
+            )
+
+        latest_document = family_documents[0]
+        previous_document = family_documents[1]
+        response = (
+            f"The latest document in the {latest_document.document_family_label or 'document'} family"
+            f" is {latest_document.original_name}"
+        )
+        if latest_document.document_date:
+            response += f" dated {latest_document.document_date}"
+        if latest_document.document_version_label:
+            response += f" ({latest_document.document_version_label})"
+        response += "."
+        response += f" The previous version is {previous_document.original_name}"
+        if previous_document.document_date:
+            response += f" dated {previous_document.document_date}"
+        if previous_document.document_version_label:
+            response += f" ({previous_document.document_version_label})"
+        response += "."
+        return response
+
+    def summarize_document_changes(
+        self,
+        query: str | None = None,
+        history: list[ChatHistoryMessage] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        processed_documents = [
+            document
+            for document in self._filter_documents_for_viewer(
+                self.list_documents(),
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if document.processing_status == "processed"
+        ]
+        if len(processed_documents) < 2:
+            return None
+
+        target_documents = self._resolve_comparison_documents(
+            query=query,
+            history=history or [],
+            processed_documents=processed_documents,
+        )
+        if not target_documents:
+            return None
+
+        if len(target_documents) >= 2:
+            left_document, right_document = target_documents[:2]
+        else:
+            family_documents = self._family_documents_for_targets(
+                target_documents,
+                processed_documents,
+            )
+            if len(family_documents) < 2:
+                return (
+                    f"I found {target_documents[0].original_name}, but I need at least two"
+                    " related documents before I can summarize changes."
+                )
+            left_document, right_document = family_documents[:2]
+
+        return self._summarize_document_delta(
+            left_document,
+            right_document,
+            query=query,
+            conflict_mode=self.is_document_conflict_query(query or ""),
+        )
+
+    def _resolve_comparison_documents(
+        self,
+        *,
+        query: str | None,
+        history: list[ChatHistoryMessage],
+        processed_documents: list[DocumentRecord],
+    ) -> list[DocumentRecord]:
+        resolved_ids: list[str] = []
+        if query:
+            resolved_ids = self.find_referenced_documents(query)[:2]
+
+        if not resolved_ids and history:
+            resolved_ids = self._resolve_similarity_target_document_ids(
+                query=query,
+                history=history,
+                processed_documents=processed_documents,
+            )[:2]
+
+        resolved_documents = [
+            document
+            for document in processed_documents
+            if document.id in resolved_ids
+        ]
+        if resolved_documents:
+            resolved_documents.sort(
+                key=lambda item: resolved_ids.index(item.id)
+                if item.id in resolved_ids
+                else len(resolved_ids)
+            )
+            return resolved_documents[:2]
+
+        requested_type = self.extract_requested_document_type(query or "")
+        if requested_type:
+            matching_documents = [
+                document
+                for document in processed_documents
+                if self._document_matches_requested_type(document, requested_type)
+            ]
+            if matching_documents:
+                matching_documents.sort(
+                    key=self._document_version_sort_key,
+                    reverse=True,
+                )
+                return matching_documents[:2]
+
+        return []
+
+    def _family_documents_for_targets(
+        self,
+        target_documents: list[DocumentRecord],
+        processed_documents: list[DocumentRecord],
+    ) -> list[DocumentRecord]:
+        if not target_documents:
+            return []
+
+        family_key = target_documents[0].document_family_key
+        if not family_key:
+            return target_documents[:1]
+
+        family_documents = [
+            document
+            for document in processed_documents
+            if document.document_family_key == family_key
+        ]
+        family_documents.sort(key=self._document_version_sort_key, reverse=True)
+        return family_documents
+
+    def _summarize_document_delta(
+        self,
+        left_document: DocumentRecord,
+        right_document: DocumentRecord,
+        *,
+        query: str | None,
+        conflict_mode: bool,
+    ) -> str:
+        shared_terms = self._shared_document_theme_terms(left_document, right_document)
+        left_only_topics = [
+            topic
+            for topic in left_document.document_topics
+            if topic not in right_document.document_topics
+        ][:3]
+        right_only_topics = [
+            topic
+            for topic in right_document.document_topics
+            if topic not in left_document.document_topics
+        ][:3]
+        lead = (
+            f"I compared {left_document.original_name} and {right_document.original_name}."
+        )
+        date_detail_parts: list[str] = []
+        if left_document.document_date:
+            date_detail_parts.append(
+                f"{left_document.original_name} is dated {left_document.document_date}"
+            )
+        if right_document.document_date:
+            date_detail_parts.append(
+                f"{right_document.original_name} is dated {right_document.document_date}"
+            )
+        date_detail = ""
+        if date_detail_parts:
+            date_detail = " " + ". ".join(date_detail_parts) + "."
+
+        overlap_detail = ""
+        if shared_terms:
+            overlap_detail = (
+                " They still overlap around " + ", ".join(shared_terms[:3]) + "."
+            )
+
+        focus_evidence = self._compare_document_focus_evidence(
+            left_document,
+            right_document,
+            query=query,
+        )
+        if focus_evidence:
+            return lead + date_detail + " " + focus_evidence
+
+        if not left_only_topics and not right_only_topics:
+            if conflict_mode:
+                return (
+                    lead
+                    + date_detail
+                    + overlap_detail
+                    + " I do not see a clear contradiction from the metadata, but they should still be reviewed side by side if wording precision matters."
+                )
+            return (
+                lead
+                + date_detail
+                + overlap_detail
+                + " Their metadata looks closely aligned, so any change is more likely to be wording or detail level than subject matter."
+            )
+
+        left_topic_line = ""
+        if left_only_topics:
+            left_topic_line = (
+                f" {left_document.original_name} leans more toward "
+                + ", ".join(left_only_topics)
+                + "."
+            )
+        right_topic_line = ""
+        if right_only_topics:
+            right_topic_line = (
+                f" {right_document.original_name} adds or emphasizes "
+                + ", ".join(right_only_topics)
+                + "."
+            )
+
+        if conflict_mode:
+            return (
+                lead
+                + date_detail
+                + overlap_detail
+                + left_topic_line
+                + right_topic_line
+                + " This looks more like a version or emphasis shift than a hard contradiction, but it is still a good pair to review together."
+            )
+
+        return lead + date_detail + overlap_detail + left_topic_line + right_topic_line
+
+    def _compare_document_focus_evidence(
+        self,
+        left_document: DocumentRecord,
+        right_document: DocumentRecord,
+        *,
+        query: str | None,
+    ) -> str | None:
+        if not query:
+            return None
+
+        left_evidence = self._extract_query_evidence(left_document, query)
+        right_evidence = self._extract_query_evidence(right_document, query)
+        if not left_evidence or not right_evidence:
+            return None
+
+        focus_label = self._focus_label_from_query(query) or "the requested detail"
+        left_value = self._extract_primary_evidence_value(left_evidence)
+        right_value = self._extract_primary_evidence_value(right_evidence)
+        if left_value and right_value:
+            if left_value == right_value:
+                return (
+                    f"Both documents show {focus_label} {left_value}, so I do not see a disagreement."
+                )
+            return (
+                f"{left_document.original_name} shows {focus_label} {left_value}, while "
+                f"{right_document.original_name} shows {focus_label} {right_value}. "
+                "That suggests a real difference."
+            )
+
+        if left_evidence == right_evidence:
+            return (
+                f"Both documents point to the same result for {focus_label}: {left_evidence}."
+            )
+
+        return (
+            f"{left_document.original_name} points to {left_evidence}, while "
+            f"{right_document.original_name} points to {right_evidence}."
+        )
+
+    def _extract_query_evidence(
+        self,
+        document: DocumentRecord,
+        query: str,
+        *,
+        window: int = 90,
+    ) -> str | None:
+        extracted_path = self.extracted_text_dir / f"{document.id}.txt"
+        if not extracted_path.exists():
+            return None
+
+        content = self._normalize_text_fragment(
+            extracted_path.read_text(encoding="utf-8")
+        )
+        normalized_content = " ".join(content.split())
+        if not normalized_content:
+            return None
+
+        focus_terms = [
+            term
+            for term in (self.extract_focus_terms(query) or self.extract_query_terms(query))
+            if term not in {"document", "documents", "file", "files", "disagree", "compare", "difference"}
+        ]
+        if not focus_terms:
+            return None
+
+        matched_phrase = ""
+        focus_phrase = " ".join(focus_terms[:2]).strip()
+        lowered_content = normalized_content.lower()
+        start_index = -1
+        if focus_phrase and focus_phrase in lowered_content:
+            matched_phrase = focus_phrase
+            start_index = lowered_content.find(focus_phrase)
+        else:
+            for term in focus_terms:
+                start_index = lowered_content.find(term.lower())
+                if start_index >= 0:
+                    matched_phrase = term
+                    break
+
+        if start_index < 0:
+            return None
+
+        snippet_start = max(0, start_index - 18)
+        snippet_end = min(len(normalized_content), start_index + len(matched_phrase) + window)
+        snippet = normalized_content[snippet_start:snippet_end].strip(" ,;:-")
+        if snippet_start > 0 and " " in snippet:
+            snippet = snippet.split(" ", 1)[-1]
+        if snippet_end < len(normalized_content) and " " in snippet:
+            snippet = snippet.rsplit(" ", 1)[0]
+        snippet = re.sub(r"\s+", " ", snippet).strip(" ,;:-")
+        return snippet or None
+
+    def _focus_label_from_query(self, query: str) -> str | None:
+        lowered = " ".join(query.lower().split())
+        patterns = (
+            r"\babout\s+the\s+([a-z0-9 /_-]+)",
+            r"\bfor\s+the\s+([a-z0-9 /_-]+)",
+            r"\bthe\s+([a-z0-9 /_-]+?)\s*(?:\?|$)",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, lowered)
+            if not match:
+                continue
+            candidate = match.group(1).strip(" ?!.,:;")
+            candidate = re.sub(
+                r"\b(?:documents?|files?|spreadsheet|spreadsheets|policy|policies)\b",
+                "",
+                candidate,
+            )
+            candidate = " ".join(candidate.split())
+            if candidate:
+                return candidate
+        focus_terms = self.extract_focus_terms(query)
+        if focus_terms:
+            return " ".join(focus_terms[:2])
+        return None
+
+    def _extract_primary_evidence_value(self, evidence: str) -> str | None:
+        q_match = re.search(
+            r"\bq[1-4]\b[^.]{0,40}?\btotal\b[^0-9]{0,12}(\d+(?:[.,]\d+)?)",
+            evidence,
+            flags=re.IGNORECASE,
+        )
+        if q_match:
+            return q_match.group(1)
+
+        number_match = re.search(r"\b\d+(?:[.,]\d+)?\b", evidence)
+        if number_match:
+            return number_match.group(0)
+        return None
+
+    def _document_version_sort_key(self, document: DocumentRecord) -> tuple[str, int, str]:
+        date_key = document.document_date or ""
+        version_key = document.document_version_number or 0
+        upload_key = document.uploaded_at or ""
+        return (date_key, version_key, upload_key)
+
+    def _build_family_summaries(
+        self,
+        processed_documents: list[DocumentRecord],
+    ) -> list[DocumentFamilySummary]:
+        families: dict[str, list[DocumentRecord]] = {}
+        for document in processed_documents:
+            if not document.document_family_key:
+                continue
+            families.setdefault(document.document_family_key, []).append(document)
+
+        summaries: list[DocumentFamilySummary] = []
+        for family_key, family_documents in families.items():
+            family_documents.sort(key=self._document_version_sort_key, reverse=True)
+            latest_document = family_documents[0]
+            topic_counter: Counter[str] = Counter()
+            for family_document in family_documents:
+                topic_counter.update(family_document.document_topics[:3])
+            summaries.append(
+                DocumentFamilySummary(
+                    family_key=family_key,
+                    family_label=latest_document.document_family_label or family_key,
+                    document_count=len(family_documents),
+                    latest_document_id=latest_document.id,
+                    latest_document_name=latest_document.original_name,
+                    latest_document_date=latest_document.document_date,
+                    topics=[topic for topic, _ in topic_counter.most_common(4)],
+                    members=[
+                        DocumentFamilyMember(
+                            document_id=document.id,
+                            document_name=document.original_name,
+                            document_date=document.document_date,
+                            version_label=document.document_version_label,
+                            uploaded_at=document.uploaded_at,
+                        )
+                        for document in family_documents[:4]
+                    ],
+                )
+            )
+
+        summaries.sort(
+            key=lambda item: (
+                item.document_count,
+                item.latest_document_date or "",
+                item.latest_document_name,
+            ),
+            reverse=True,
+        )
+        return summaries
+
+    def _summarize_duplicate_document_families(
+        self,
+        processed_documents: list[DocumentRecord],
+    ) -> str | None:
+        family_summaries = [
+            summary
+            for summary in self._build_family_summaries(processed_documents)
+            if summary.document_count >= 2 and len(summary.members) >= 2
+        ]
+        if not family_summaries:
+            return None
+
+        ranked_pairs: list[tuple[DocumentFamilySummary, str, str]] = []
+        for summary in family_summaries:
+            member_names = [
+                member.document_name
+                for member in summary.members
+                if member.document_name
+            ]
+            if len(member_names) < 2:
+                continue
+            left_name = member_names[0]
+            right_name = next(
+                (name for name in member_names[1:] if name != left_name),
+                member_names[1],
+            )
+            ranked_pairs.append((summary, left_name, right_name))
+
+        if not ranked_pairs:
+            return None
+
+        strongest_summary, strongest_left, strongest_right = ranked_pairs[0]
+        family_label = (
+            strongest_summary.family_label
+            or strongest_summary.family_key
+            or "document family"
+        )
+        response = (
+            f"The clearest repeated document family is {family_label}: "
+            f"{strongest_left} and {strongest_right}."
+        )
+        response += (
+            f" I found {strongest_summary.document_count} related uploads in that family."
+        )
+
+        additional_families = ", ".join(
+            f"{summary.family_label or summary.family_key} ({summary.document_count})"
+            for summary, _, _ in ranked_pairs[1:4]
+            if summary.family_label or summary.family_key
+        )
+        if additional_families:
+            response += f" Other repeated families include {additional_families}."
+        return response
+
     def semantic_sources_match_query(
         self, query: str, sources: list[ChatSource]
     ) -> bool:
@@ -1588,8 +2951,13 @@ class DocumentService:
             return False
 
         requested_document_type = self.extract_requested_document_type(query)
-        if requested_document_type and requested_document_type == (source.source_kind or ""):
-            return len(matched_terms) >= 1
+        if requested_document_type:
+            document = self.get_document(source.document_id)
+            if document is not None and self._document_matches_requested_type(
+                document,
+                requested_document_type,
+            ):
+                return len(matched_terms) >= 1
 
         if len(terms) >= 2:
             return len(matched_terms) >= 2
@@ -1658,19 +3026,146 @@ class DocumentService:
             return hydrated_sources[:limit]
         return hydrated_sources
 
+    def _document_matches_requested_type(
+        self,
+        document: DocumentRecord,
+        requested_type: str,
+    ) -> bool:
+        if requested_type in {"word", "spreadsheet", "presentation"}:
+            return (document.source_kind or "document") == requested_type
+
+        detected_type = document.detected_document_type or "document"
+        if detected_type == requested_type:
+            return True
+
+        thematic_types = {"roadmap", "architecture", "features"}
+        if requested_type not in thematic_types:
+            return False
+
+        alias_terms = [
+            alias.lower()
+            for alias in self.DOCUMENT_TYPE_ALIASES.get(requested_type, set())
+            if alias
+        ]
+        searchable_parts = [
+            document.original_name,
+            document.document_title or "",
+            document.source_kind or "",
+            " ".join(document.document_entities[:6]),
+            " ".join(signal.value for signal in document.document_signals[:8]),
+        ]
+        searchable_text = self._strip_accents(" ".join(searchable_parts).lower())
+        return any(alias in searchable_text for alias in alias_terms)
+
+    def _metadata_match_sort_key(
+        self,
+        document: DocumentRecord,
+        *,
+        requested_type: str | None,
+        requested_entity: str | None,
+    ) -> tuple[float, str]:
+        score = 0.0
+        detected_type = document.detected_document_type or "document"
+        source_kind = (document.source_kind or "").lower()
+
+        if requested_type and detected_type == requested_type:
+            score += 5.0
+
+        source_kind_weights = {
+            "pdf": 2.6,
+            "word": 2.2,
+            "presentation": 1.8,
+            "spreadsheet": 1.4,
+            "image": 1.1,
+            "markdown": 0.8,
+            "text": 0.7,
+            "json": 0.4,
+            "xml": 0.3,
+            "csv": 0.2,
+            "code": 0.1,
+            "config": 0.1,
+        }
+        score += source_kind_weights.get(source_kind, 0.5)
+
+        if requested_type in {"invoice", "quote", "receipt"} and source_kind == "csv":
+            score -= 1.4
+
+        alias_terms = [
+            self._strip_accents(alias.lower())
+            for alias in self.DOCUMENT_TYPE_ALIASES.get(requested_type or "", set())
+            if alias
+        ]
+        searchable_parts = [
+            document.original_name,
+            document.document_title or "",
+            " ".join(document.document_topics[:4]),
+            " ".join(document.document_entities[:4]),
+        ]
+        searchable_text = self._strip_accents(" ".join(searchable_parts).lower())
+        if alias_terms and any(alias in searchable_text for alias in alias_terms):
+            score += 1.4
+
+        if requested_entity and self._document_matches_entity(document, requested_entity):
+            score += 1.2
+
+        if document.document_title:
+            score += 0.4
+        if document.ocr_used:
+            score += 0.2
+        if document.document_date:
+            score += 0.2
+
+        return (score, document.uploaded_at or "")
+
     def _write_metadata(self, document: DocumentRecord) -> None:
         metadata_path = self._metadata_path(document.id)
-        with metadata_path.open("w", encoding="utf-8") as file_handle:
-            json.dump(document.model_dump(), file_handle, ensure_ascii=True, indent=2)
+        self._write_json_atomic(metadata_path, document.model_dump())
+
+    def _write_json_atomic(self, path: Path, payload: Any) -> None:
+        temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            with temp_path.open("w", encoding="utf-8") as file_handle:
+                json.dump(payload, file_handle, ensure_ascii=True, indent=2)
+            temp_path.replace(path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
+
+    def _write_text_atomic(self, path: Path, text: str) -> None:
+        temp_path = path.with_name(f".{path.name}.{uuid4().hex}.tmp")
+        try:
+            temp_path.write_text(text, encoding="utf-8")
+            temp_path.replace(path)
+        finally:
+            if temp_path.exists():
+                temp_path.unlink()
 
     def _normalize_document_record(self, document: DocumentRecord) -> DocumentRecord:
         if document.processing_status == "failed":
             document.document_signals = self._coerce_document_signals(document.document_signals)
+            document.similar_documents = self._coerce_document_similarity_matches(
+                document.similar_documents
+            )
+            document.similarity_terms = self._normalize_similarity_terms(
+                document.similarity_terms
+            )
+            document.document_topics = self._normalize_similarity_terms(
+                document.document_topics
+            )[:8]
             document.processing_stage = "failed"
             return document
 
         if document.processing_status == "processed":
             document.document_signals = self._coerce_document_signals(document.document_signals)
+            document.similar_documents = self._coerce_document_similarity_matches(
+                document.similar_documents
+            )
+            document.similarity_terms = self._normalize_similarity_terms(
+                document.similarity_terms
+            )
+            document.document_topics = self._normalize_similarity_terms(
+                document.document_topics
+            )[:8]
             if not document.processing_stage or document.processing_stage == "queued":
                 document.processing_stage = "completed"
             if not document.ocr_status:
@@ -1681,11 +3176,30 @@ class DocumentService:
             return document
 
         if document.processing_stage == "completed":
+            document.document_signals = self._coerce_document_signals(document.document_signals)
+            document.similar_documents = self._coerce_document_similarity_matches(
+                document.similar_documents
+            )
+            document.similarity_terms = self._normalize_similarity_terms(
+                document.similarity_terms
+            )
+            document.document_topics = self._normalize_similarity_terms(
+                document.document_topics
+            )[:8]
             document.processing_status = "processed"
             return document
 
         if document.indexing_status in {"indexed", "failed", "skipped"}:
             document.document_signals = self._coerce_document_signals(document.document_signals)
+            document.similar_documents = self._coerce_document_similarity_matches(
+                document.similar_documents
+            )
+            document.similarity_terms = self._normalize_similarity_terms(
+                document.similarity_terms
+            )
+            document.document_topics = self._normalize_similarity_terms(
+                document.document_topics
+            )[:8]
             document.processing_status = "processed"
             if not document.processing_stage or document.processing_stage == "queued":
                 document.processing_stage = (
@@ -1705,6 +3219,15 @@ class DocumentService:
         if document.ocr_status != "used":
             document.ocr_engine = None
         document.document_signals = self._coerce_document_signals(document.document_signals)
+        document.similar_documents = self._coerce_document_similarity_matches(
+            document.similar_documents
+        )
+        document.similarity_terms = self._normalize_similarity_terms(
+            document.similarity_terms
+        )
+        document.document_topics = self._normalize_similarity_terms(
+            document.document_topics
+        )[:8]
         self._normalize_legacy_pdf_ocr_state(document)
 
         return document
@@ -1807,6 +3330,55 @@ class DocumentService:
                 document.document_date_kind = detected_date_kind
                 changed = True
 
+        if extracted_text:
+            family_key = self._derive_document_family_key(document)
+            family_label = self._derive_document_family_label(document)
+            version_label, version_number = self._derive_document_version(document)
+            topics = self._build_document_topics(document, extracted_text=extracted_text)
+            summary_anchor = self._derive_document_summary_anchor(
+                document,
+                extracted_text=extracted_text,
+            )
+            if family_key != document.document_family_key:
+                document.document_family_key = family_key
+                changed = True
+            if family_label != document.document_family_label:
+                document.document_family_label = family_label
+                changed = True
+            if version_label != document.document_version_label:
+                document.document_version_label = version_label
+                changed = True
+            if version_number != document.document_version_number:
+                document.document_version_number = version_number
+                changed = True
+            if topics != self._normalize_similarity_terms(document.document_topics):
+                document.document_topics = topics
+                changed = True
+            if summary_anchor != document.document_summary_anchor:
+                document.document_summary_anchor = summary_anchor
+                changed = True
+
+            similarity_profile = self._build_document_similarity_profile(
+                document,
+                sample_text=extracted_text,
+            )
+            similarity_terms = self._build_similarity_terms(
+                document,
+                extracted_text=extracted_text,
+            )
+            normalized_similarity_terms = self._normalize_similarity_terms(similarity_terms)
+            if similarity_profile != document.similarity_profile:
+                document.similarity_profile = similarity_profile
+                changed = True
+            if normalized_similarity_terms != self._normalize_similarity_terms(
+                document.similarity_terms
+            ):
+                document.similarity_terms = normalized_similarity_terms
+                changed = True
+            if document.similarity_profile and document.similarity_updated_at is None:
+                document.similarity_updated_at = datetime.now(UTC).isoformat()
+                changed = True
+
         if changed:
             self._write_metadata(document)
 
@@ -1838,6 +3410,15 @@ class DocumentService:
             key=lambda item: item.score,
             reverse=True,
         )[:3]
+        document.document_topics = self._normalize_similarity_terms(
+            document.document_topics
+        )[:4]
+        document.similar_documents = self._coerce_document_similarity_matches(
+            document.similar_documents
+        )[:2]
+        document.similarity_terms = self._normalize_similarity_terms(
+            document.similarity_terms
+        )[:8]
         return document
 
     def _coerce_document_signals(
@@ -1860,6 +3441,55 @@ class DocumentService:
 
         return coerced
 
+    def _coerce_document_similarity_matches(
+        self,
+        values: list[DocumentSimilarityMatch | dict[str, object]] | None,
+    ) -> list[DocumentSimilarityMatch]:
+        if not values:
+            return []
+
+        coerced: list[DocumentSimilarityMatch] = []
+        seen_ids: set[str] = set()
+        for value in values:
+            if isinstance(value, DocumentSimilarityMatch):
+                match = value
+            else:
+                try:
+                    match = DocumentSimilarityMatch.model_validate(value)
+                except Exception:
+                    continue
+
+            if not match.document_id or match.document_id in seen_ids:
+                continue
+            seen_ids.add(match.document_id)
+            coerced.append(
+                DocumentSimilarityMatch(
+                    document_id=match.document_id,
+                    document_name=match.document_name,
+                    score=round(max(0.0, min(float(match.score), 1.0)), 4),
+                    shared_terms=self._normalize_similarity_terms(match.shared_terms)[:4],
+                    reason=self._normalize_optional_text(match.reason),
+                )
+            )
+
+        return sorted(coerced, key=lambda item: item.score, reverse=True)
+
+    def _normalize_similarity_terms(self, values: list[str] | None) -> list[str]:
+        if not values:
+            return []
+
+        normalized: list[str] = []
+        seen_terms: set[str] = set()
+        for value in values:
+            term = self._strip_accents(str(value).lower()).strip()
+            term = re.sub(r"[^a-z0-9-]+", " ", term)
+            term = " ".join(term.split())
+            if len(term) < 3 or term in seen_terms:
+                continue
+            seen_terms.add(term)
+            normalized.append(term)
+        return normalized[:40]
+
     def _should_refresh_entity_metadata(self, document: DocumentRecord) -> bool:
         if not settings.gliner_backfill_existing:
             return False
@@ -1877,6 +3507,23 @@ class DocumentService:
         ]
         multiword_entities = [entity for entity in document.document_entities if len(entity.split()) >= 2]
         return len(strong_entity_signals) < 2 or len(multiword_entities) < 2
+
+    def _needs_background_intelligence_refresh(self, document: DocumentRecord) -> bool:
+        if document.processing_status != "processed":
+            return False
+        if not document.document_family_key:
+            return True
+        if not document.document_family_label:
+            return True
+        if not document.document_topics:
+            return True
+        if not document.similarity_profile:
+            return True
+        if not document.similarity_terms:
+            return True
+        if document.similarity_updated_at is None:
+            return True
+        return False
 
     def _update_processing_stage(
         self,
@@ -1899,14 +3546,13 @@ class DocumentService:
 
     def _write_extracted_text(self, document_id: str, text: str) -> None:
         path = self.extracted_text_dir / f"{document_id}.txt"
-        path.write_text(text, encoding="utf-8")
+        self._write_text_atomic(path, text)
 
     def _write_chunks(
         self, document_id: str, chunks: list[dict[str, str | int]]
     ) -> None:
         path = self.chunks_dir / f"{document_id}.json"
-        with path.open("w", encoding="utf-8") as file_handle:
-            json.dump(chunks, file_handle, ensure_ascii=True, indent=2)
+        self._write_json_atomic(path, chunks)
 
     def _remove_processing_artifacts(self, document_id: str) -> None:
         extracted_path = self.extracted_text_dir / f"{document_id}.txt"
@@ -2342,6 +3988,246 @@ class DocumentService:
             return ""
         return " ".join(part.capitalize() if not part.isdigit() else part for part in value.split())
 
+    def _join_phrases(self, values: list[str]) -> str:
+        items = [str(value).strip() for value in values if str(value).strip()]
+        if not items:
+            return ""
+        if len(items) == 1:
+            return items[0]
+        if len(items) == 2:
+            return f"{items[0]} and {items[1]}"
+        return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+    def _with_indefinite_article(self, value: str) -> str:
+        cleaned = str(value or "").strip()
+        if not cleaned:
+            return value
+        article = "an" if cleaned[:1].lower() in {"a", "e", "i", "o", "u"} else "a"
+        return f"{article} {cleaned}"
+
+    def _format_size_bytes(self, size_bytes: int) -> str:
+        size = float(max(size_bytes, 0))
+        units = ("B", "KB", "MB", "GB")
+        for unit in units:
+            if size < 1024 or unit == units[-1]:
+                if unit == "B":
+                    return f"{int(size)} {unit}"
+                return f"{size:.1f} {unit}"
+            size /= 1024
+        return f"{int(size_bytes)} B"
+
+    def _format_uploaded_at(self, uploaded_at: str | None) -> str:
+        if not uploaded_at:
+            return "an unknown time"
+        try:
+            timestamp = datetime.fromisoformat(uploaded_at)
+        except ValueError:
+            return uploaded_at
+        return timestamp.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+
+    def _document_has_signature_markers(self, document: DocumentRecord) -> bool:
+        if document.document_date_kind == "signed_date":
+            return True
+        if any(
+            marker in signal.normalized
+            for signal in self._coerce_document_signals(document.document_signals)
+            for marker in ("signed", "signature")
+        ):
+            return True
+        extracted_text = self.get_extracted_text(document.id)
+        if not extracted_text:
+            return False
+        lowered = extracted_text.lower()
+        return any(
+            marker in lowered
+            for marker in (
+                "signed by",
+                "signed on",
+                "signature date",
+                "signature of",
+                "undersigned",
+                "authorized buyer",
+                "authorized seller",
+            )
+        )
+
+    def _document_company_candidates(self, document: DocumentRecord) -> list[str]:
+        candidates: list[str] = []
+        for entity in document.document_entities:
+            cleaned = self._clean_company_candidate(entity)
+            if cleaned and cleaned not in candidates:
+                candidates.append(cleaned)
+
+        for signal in self._coerce_document_signals(document.document_signals):
+            if signal.category != "entity":
+                continue
+            cleaned = self._clean_company_candidate(signal.value)
+            if cleaned and cleaned not in candidates:
+                candidates.append(cleaned)
+
+        extracted_text = self.get_extracted_text(document.id)
+        patterns = (
+            r"(?im)^(?:vendor|supplier|seller|company|customer|bill to|invoice to)\s*[:\-]\s*(.+)$",
+            r"(?im)^(?:leverant[oö]r|kund)\s*[:\-]\s*(.+)$",
+            r"(?im)^(?:sprzedawca\s*/\s*seller|seller|vendor|supplier|company|customer)\s*$\s*([^\n]+)$",
+            r"(?im)^(?:nabywca\s*/\s*bill to|bill to|invoice to|buyer)\s*$\s*([^\n]+)$",
+        )
+        for pattern in patterns:
+            for match in re.finditer(pattern, extracted_text):
+                cleaned = self._clean_company_candidate(match.group(1))
+                if cleaned and cleaned not in candidates:
+                    candidates.append(cleaned)
+
+        for match in re.finditer(
+            r"(?i)([A-Za-z][A-Za-z&.'-]*(?:[ \t]+[A-Za-z][A-Za-z&.'-]*){0,5}[ \t]+(?:AB|LLC|Ltd|GmbH|S\.?A\.?))",
+            extracted_text,
+        ):
+            cleaned = self._clean_company_candidate(match.group(1))
+            if cleaned and cleaned not in candidates:
+                candidates.append(cleaned)
+
+        unique_candidates: list[str] = []
+        seen_candidates: set[str] = set()
+        for candidate in candidates:
+            normalized_candidate = self._strip_accents(candidate).lower()
+            if normalized_candidate in seen_candidates:
+                continue
+            seen_candidates.add(normalized_candidate)
+            unique_candidates.append(candidate)
+
+        unique_candidates.sort(key=self._company_candidate_priority)
+        return unique_candidates[:4]
+
+    def _clean_company_candidate(self, value: str) -> str | None:
+        cleaned = " ".join(str(value or "").replace("\n", " ").split()).strip(" .,:;")
+        if not cleaned:
+            return None
+
+        extracted_match = re.search(
+            r"([A-ZÀ-Ý][A-Za-zÀ-ÿ&.'-]+(?:[ \t]+[A-ZÀ-Ý][A-Za-zÀ-ÿ&.'-]+){0,6}[ \t]+(?:AB|LLC|Ltd|GmbH|S\.A\.|SA))\b",
+            cleaned,
+        )
+        if extracted_match:
+            cleaned = extracted_match.group(1).strip(" .,:;")
+
+        if not self._is_likely_company_name(cleaned):
+            return None
+        return cleaned
+
+    def _company_candidate_priority(self, value: str) -> tuple[int, int]:
+        lowered = self._strip_accents(value).lower()
+        has_company_suffix = bool(
+            re.search(r"\b(?:ab|llc|ltd|gmbh|s\.a\.|sa)\b", lowered)
+        )
+        return (0 if has_company_suffix else 1, len(value))
+
+    def _is_likely_company_name(self, value: str) -> bool:
+        cleaned = str(value or "").strip()
+        if len(cleaned.split()) < 2:
+            return False
+        if re.search(r"\d|[/\\|]", cleaned):
+            return False
+        lowered = self._strip_accents(cleaned).lower()
+        if any(
+            marker in lowered
+            for marker in (
+                "swift",
+                "bic",
+                "iban",
+                "vat",
+                "account",
+                "bank",
+                "paypal",
+                "nexo",
+                "kod cn",
+                "cn code",
+                "invoice",
+                "invoice fs",
+            )
+        ):
+            return False
+        alpha_ratio = sum(character.isalpha() for character in cleaned) / max(len(cleaned.replace(" ", "")), 1)
+        return alpha_ratio >= 0.72
+
+    def _extract_document_product_evidence(self, document: DocumentRecord) -> list[str]:
+        extracted_text = self._normalize_text_fragment(self.get_extracted_text(document.id))
+        if not extracted_text:
+            return []
+
+        normalized = " ".join(extracted_text.split())
+        evidences: list[str] = []
+        patterns = (
+            r"(?i)(?:product|item|description)\s*[:\-]\s*([A-Za-z][A-Za-z0-9 /(),-]{2,80})",
+            r"(?i)barcode\s+([A-Za-z][A-Za-z0-9 /(),-]{2,60})\s+(?:quantity|qty|ilość|ilosc)\b",
+        )
+        for pattern in patterns:
+            for match in re.finditer(pattern, normalized):
+                cleaned = match.group(1).strip(" .,:;")
+                if cleaned and cleaned not in evidences:
+                    evidences.append(cleaned)
+
+        if evidences:
+            return evidences[:4]
+
+        fallback_phrases = (
+            "bicycle part",
+            "spare part",
+            "service fee",
+            "license",
+            "subscription",
+        )
+        lowered = normalized.lower()
+        for phrase in fallback_phrases:
+            if phrase in lowered:
+                evidences.append(phrase.title() if phrase != "bicycle part" else "Bicycle part")
+
+        return evidences[:4]
+
+    def _summarize_products_for_documents(
+        self,
+        documents: list[DocumentRecord],
+    ) -> str:
+        product_map: list[tuple[DocumentRecord, list[str]]] = []
+        empty_documents: list[DocumentRecord] = []
+        for document in documents:
+            evidences = self._extract_document_product_evidence(document)
+            if evidences:
+                product_map.append((document, evidences))
+            else:
+                empty_documents.append(document)
+
+        if not product_map:
+            if len(documents) == 1:
+                return (
+                    f"I could not find a clear product list in {documents[0].original_name}. "
+                    "The extracted text does not expose specific ordered items."
+                )
+            return (
+                f"I checked {len(documents)} related documents, but I could not find a clear product list in the extracted text."
+            )
+
+        if len(documents) == 1:
+            document, evidences = product_map[0]
+            lead = self._join_phrases(evidences[:3])
+            return (
+                f"The clearest ordered item in {document.original_name} is {lead}. "
+                "I do not see a more detailed product list in the extracted text."
+            )
+
+        leading_details = "; ".join(
+            f"{document.original_name}: {self._join_phrases(evidences[:2])}"
+            for document, evidences in product_map[:3]
+        )
+        response = (
+            f"I found product-style information in {len(product_map)} of {len(documents)} related documents. "
+            f"The clearest matches are {leading_details}."
+        )
+        if empty_documents:
+            response += (
+                f" {len(empty_documents)} related documents only expose totals or status without item details."
+            )
+        return response
+
     def _document_entity_fragment(
         self,
         document: DocumentRecord,
@@ -2429,6 +4315,71 @@ class DocumentService:
             "dokument",
             "laddat",
             "upp",
+        }
+        deduped_terms: list[str] = []
+        seen_terms: set[str] = set()
+        for term in raw_terms:
+            if term in ignored_terms or term in seen_terms:
+                continue
+            seen_terms.add(term)
+            deduped_terms.append(term)
+        return deduped_terms
+
+    def _reference_query_terms(self, value: str) -> list[str]:
+        raw_terms = re.findall(
+            r"[a-z0-9]{2,}",
+            self._normalize_document_name(value),
+        )
+        ignored_terms = {
+            "the",
+            "and",
+            "for",
+            "with",
+            "this",
+            "that",
+            "what",
+            "which",
+            "does",
+            "have",
+            "did",
+            "about",
+            "tell",
+            "show",
+            "list",
+            "find",
+            "some",
+            "any",
+            "very",
+            "only",
+            "can",
+            "you",
+            "are",
+            "is",
+            "it",
+            "simular",
+            "similar",
+            "same",
+            "overlap",
+            "duplicate",
+            "duplicates",
+            "latest",
+            "lataste",
+            "recent",
+            "newest",
+            "last",
+            "uploaded",
+            "upload",
+            "file",
+            "files",
+            "document",
+            "documents",
+            "mina",
+            "visa",
+            "vilka",
+            "filer",
+            "dokument",
+            "senaste",
+            "nyaste",
         }
         deduped_terms: list[str] = []
         seen_terms: set[str] = set()
@@ -2581,6 +4532,9 @@ class DocumentService:
         history: list[ChatHistoryMessage],
         processed_documents: list[DocumentRecord],
     ) -> list[str]:
+        if query and self.is_broad_similarity_inventory_query(query):
+            return []
+
         if query:
             matched_ids = self.find_referenced_documents(query)
             if matched_ids:
@@ -2630,6 +4584,19 @@ class DocumentService:
         minimum_score: float,
     ) -> str:
         target_document = target_documents[0]
+        cached_candidates = self._cached_similarity_candidates(
+            target_document,
+            processed_documents,
+        )
+        if cached_candidates and cached_candidates[0][0] >= minimum_score:
+            strongest_score, strongest_document, shared_terms = cached_candidates[0]
+            return self._render_similarity_summary(
+                target_document=target_document,
+                strongest_document=strongest_document,
+                strongest_score=strongest_score,
+                shared_terms=shared_terms,
+            )
+
         target_profile = self._build_document_similarity_profile(target_document)
         candidate_documents = [
             document
@@ -2707,18 +4674,371 @@ class DocumentService:
 
         candidates.sort(key=lambda item: item[0], reverse=True)
         strongest_score, strongest_document, shared_terms = candidates[0]
+        return self._render_similarity_summary(
+            target_document=target_document,
+            strongest_document=strongest_document,
+            strongest_score=strongest_score,
+            shared_terms=shared_terms,
+        )
+
+    def _refresh_similarity_cache_for_document(
+        self,
+        document: DocumentRecord,
+        *,
+        extracted_text: str,
+    ) -> None:
+        document.similarity_profile = self._build_document_similarity_profile(
+            document,
+            sample_text=extracted_text,
+        )
+        document.similarity_terms = self._build_similarity_terms(
+            document,
+            extracted_text=extracted_text,
+        )
+
+        processed_documents = [
+            candidate
+            for candidate in self.list_documents()
+            if candidate.id != document.id and candidate.processing_status == "processed"
+        ]
+        document.similar_documents = self._rank_similar_documents(
+            document,
+            processed_documents,
+            limit=6,
+            minimum_score=0.2,
+        )
+        document.similarity_updated_at = datetime.now(UTC).isoformat()
+        self._store_reverse_similarity_links(document, processed_documents)
+
+    def _store_reverse_similarity_links(
+        self,
+        source_document: DocumentRecord,
+        candidates: list[DocumentRecord],
+    ) -> None:
+        candidate_lookup = {
+            candidate.id: candidate
+            for candidate in candidates
+        }
+        for match in source_document.similar_documents[:6]:
+            candidate = candidate_lookup.get(match.document_id)
+            if candidate is None:
+                continue
+            if not candidate.similarity_profile:
+                candidate.similarity_profile = self._build_document_similarity_profile(
+                    candidate
+                )
+            if not candidate.similarity_terms:
+                candidate.similarity_terms = self._build_similarity_terms(candidate)
+            candidate.similar_documents = self._upsert_similarity_match(
+                candidate.similar_documents,
+                DocumentSimilarityMatch(
+                    document_id=source_document.id,
+                    document_name=source_document.original_name,
+                    score=match.score,
+                    shared_terms=match.shared_terms,
+                    reason=match.reason,
+                ),
+                limit=6,
+            )
+            candidate.similarity_updated_at = datetime.now(UTC).isoformat()
+            self._write_metadata(candidate)
+
+    def _upsert_similarity_match(
+        self,
+        existing_matches: list[DocumentSimilarityMatch],
+        new_match: DocumentSimilarityMatch,
+        *,
+        limit: int,
+    ) -> list[DocumentSimilarityMatch]:
+        merged: list[DocumentSimilarityMatch] = [
+            match
+            for match in self._coerce_document_similarity_matches(existing_matches)
+            if match.document_id != new_match.document_id
+        ]
+        merged.append(new_match)
+        return self._coerce_document_similarity_matches(merged)[:limit]
+
+    def _rank_similar_documents(
+        self,
+        target_document: DocumentRecord,
+        candidate_documents: list[DocumentRecord],
+        *,
+        limit: int,
+        minimum_score: float,
+    ) -> list[DocumentSimilarityMatch]:
+        target_terms = self._document_similarity_term_set(target_document)
+        target_signals = self._document_signal_term_set(target_document)
+        target_title = self._normalize_document_name(
+            f"{target_document.original_name} {target_document.document_title or ''}"
+        )
+
+        ranked: list[DocumentSimilarityMatch] = []
+        for candidate in candidate_documents:
+            if candidate.processing_status != "processed":
+                continue
+
+            candidate_terms = self._document_similarity_term_set(candidate)
+            candidate_signals = self._document_signal_term_set(candidate)
+            text_score = self._jaccard_similarity(target_terms, candidate_terms)
+            signal_score = self._jaccard_similarity(target_signals, candidate_signals)
+            title_score = SequenceMatcher(
+                None,
+                target_title,
+                self._normalize_document_name(
+                    f"{candidate.original_name} {candidate.document_title or ''}"
+                ),
+            ).ratio()
+            type_bonus = (
+                0.08
+                if target_document.detected_document_type
+                and target_document.detected_document_type == candidate.detected_document_type
+                else 0.0
+            )
+            entity_bonus = (
+                0.05
+                if set(target_document.document_entities) & set(candidate.document_entities)
+                else 0.0
+            )
+            overlap_bonus = min(len(target_terms & candidate_terms), 6) * 0.015
+            combined_score = (
+                (text_score * 0.52)
+                + (signal_score * 0.18)
+                + (title_score * 0.12)
+                + type_bonus
+                + entity_bonus
+                + overlap_bonus
+            )
+            if signal_score == 0 and text_score < 0.06 and title_score < 0.42:
+                continue
+            if combined_score < minimum_score:
+                continue
+
+            shared_terms = self._shared_document_theme_terms(target_document, candidate)
+            ranked.append(
+                DocumentSimilarityMatch(
+                    document_id=candidate.id,
+                    document_name=candidate.original_name,
+                    score=round(max(0.0, min(combined_score, 1.0)), 4),
+                    shared_terms=shared_terms[:4],
+                    reason=self._similarity_reason(
+                        target_document,
+                        candidate,
+                        shared_terms,
+                    ),
+                )
+            )
+
+        return self._coerce_document_similarity_matches(ranked)[:limit]
+
+    def _cached_similarity_candidates(
+        self,
+        target_document: DocumentRecord,
+        processed_documents: list[DocumentRecord],
+    ) -> list[tuple[float, DocumentRecord, list[str]]]:
+        if not target_document.similar_documents:
+            return []
+
+        candidate_lookup = {
+            document.id: document
+            for document in processed_documents
+            if document.id != target_document.id
+        }
+        ranked: list[tuple[float, DocumentRecord, list[str]]] = []
+        for match in self._coerce_document_similarity_matches(
+            target_document.similar_documents
+        ):
+            candidate = candidate_lookup.get(match.document_id)
+            if candidate is None:
+                continue
+            ranked.append((match.score, candidate, match.shared_terms))
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        return ranked
+
+    def _render_similarity_summary(
+        self,
+        *,
+        target_document: DocumentRecord,
+        strongest_document: DocumentRecord,
+        strongest_score: float,
+        shared_terms: list[str],
+    ) -> str:
         shared_theme = ", ".join(shared_terms[:3]) if shared_terms else "overall topic"
+        similarity_percent = round(min(max(strongest_score, 0.0), 1.0) * 100)
         lead = (
-            f"The closest thematic match to {target_document.original_name} is "
+            f"The closest related document to {target_document.original_name} is "
             f"{strongest_document.original_name}."
         )
         detail = (
-            f" They overlap around {shared_theme}, with an estimated semantic similarity "
-            f"of about {round(strongest_score * 100)}%."
+            f" They overlap around {shared_theme}, with an estimated similarity of about"
+            f" {similarity_percent}%."
         )
         return lead + detail
 
-    def _build_document_similarity_profile(self, document: DocumentRecord) -> str:
+    def _similarity_reason(
+        self,
+        left_document: DocumentRecord,
+        right_document: DocumentRecord,
+        shared_terms: list[str],
+    ) -> str:
+        if shared_terms:
+            return "Shared themes: " + ", ".join(shared_terms[:3])
+        if (
+            left_document.detected_document_type
+            and left_document.detected_document_type == right_document.detected_document_type
+        ):
+            return f"Same document type: {left_document.detected_document_type}"
+        if set(left_document.document_entities) & set(right_document.document_entities):
+            return "Overlapping named entities"
+        return "General thematic overlap"
+
+    def _derive_document_family_key(self, document: DocumentRecord) -> str | None:
+        base_name = Path(document.original_name).stem
+        candidate = document.document_title or base_name
+        normalized = self._normalize_document_name(candidate)
+        normalized = re.sub(r"^\d{8}-\d{6}-", "", normalized)
+        normalized = re.sub(
+            r"\b20\d{2}[._-]?(?:0[1-9]|1[0-2])(?:[._-]?(?:0[1-9]|[12]\d|3[01]))?\b",
+            " ",
+            normalized,
+        )
+        normalized = re.sub(
+            r"\b(?:v|ver|version|rev|revision)[._ -]*\d+\b",
+            " ",
+            normalized,
+        )
+        normalized = re.sub(r"\b(?:copy|final|draft)\b", " ", normalized)
+        normalized = re.sub(r"[_-]+", " ", normalized)
+        normalized = " ".join(normalized.split())
+        if not normalized or len(normalized) < 4:
+            return None
+        return normalized[:120]
+
+    def _derive_document_family_label(self, document: DocumentRecord) -> str | None:
+        family_key = self._derive_document_family_key(document)
+        if not family_key:
+            return None
+
+        candidate = document.document_title or Path(document.original_name).stem
+        candidate = re.sub(r"^\d{8}-\d{6}-", "", candidate).strip()
+        candidate = re.sub(
+            r"\b(?:v|ver|version|rev|revision)[._ -]*\d+\b",
+            "",
+            candidate,
+            flags=re.IGNORECASE,
+        )
+        candidate = re.sub(
+            r"\b20\d{2}[._-]?(?:0[1-9]|1[0-2])(?:[._-]?(?:0[1-9]|[12]\d|3[01]))?\b",
+            "",
+            candidate,
+        )
+        candidate = " ".join(candidate.replace("_", " ").replace("-", " ").split())
+        return candidate[:120] if candidate else family_key.title()
+
+    def _derive_document_version(
+        self,
+        document: DocumentRecord,
+    ) -> tuple[str | None, int | None]:
+        searchable = " ".join(
+            part
+            for part in [
+                document.original_name,
+                document.document_title or "",
+                document.document_date or "",
+            ]
+            if part
+        )
+        match = re.search(
+            r"\b(?:v|ver|version|rev|revision)[._ -]*(\d{1,4})\b",
+            searchable,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            version_number = int(match.group(1))
+            return (f"v{version_number}", version_number)
+
+        if document.document_date:
+            digits = re.sub(r"\D+", "", document.document_date)
+            if digits:
+                try:
+                    return (document.document_date, int(digits[:8]))
+                except ValueError:
+                    return (document.document_date, None)
+
+        return (None, None)
+
+    def _build_document_topics(
+        self,
+        document: DocumentRecord,
+        *,
+        extracted_text: str | None = None,
+    ) -> list[str]:
+        weighted_topics: Counter[str] = Counter()
+        if document.detected_document_type and document.detected_document_type != "document":
+            weighted_topics[document.detected_document_type] += 5
+        if document.source_kind and document.source_kind not in {"document", "pdf"}:
+            weighted_topics[document.source_kind] += 2
+
+        for entity in document.document_entities[:5]:
+            normalized = self._normalize_entity_text(entity)
+            if normalized:
+                weighted_topics[normalized] += 3
+
+        for signal in sorted(
+            document.document_signals,
+            key=lambda item: item.score,
+            reverse=True,
+        )[:8]:
+            normalized = self._normalize_entity_text(signal.value or signal.normalized)
+            if normalized and len(normalized) >= 3:
+                weighted_topics[normalized] += 2 if signal.score >= 0.5 else 1
+
+        similarity_terms = self._build_similarity_terms(
+            document,
+            extracted_text=extracted_text,
+        )
+        for term in similarity_terms[:8]:
+            if len(term) >= 4:
+                weighted_topics[term] += 1
+
+        return [topic for topic, _ in weighted_topics.most_common(6)]
+
+    def _derive_document_summary_anchor(
+        self,
+        document: DocumentRecord,
+        *,
+        extracted_text: str | None = None,
+    ) -> str | None:
+        if document.document_entities:
+            return document.document_entities[0]
+
+        strong_signals = [
+            signal.value
+            for signal in sorted(
+                document.document_signals,
+                key=lambda item: item.score,
+                reverse=True,
+            )
+            if signal.value and signal.score >= 0.45
+        ]
+        if strong_signals:
+            return strong_signals[0]
+
+        topics = self._build_document_topics(document, extracted_text=extracted_text)
+        if topics:
+            return topics[0]
+
+        return None
+
+    def _build_document_similarity_profile(
+        self,
+        document: DocumentRecord,
+        *,
+        sample_text: str | None = None,
+    ) -> str:
+        if sample_text is None and document.similarity_profile:
+            return document.similarity_profile
+
         parts = [
             f"name: {document.original_name}",
             f"type: {document.detected_document_type or 'document'}",
@@ -2727,10 +5047,16 @@ class DocumentService:
             parts.append(f"title: {document.document_title}")
         if document.document_date:
             parts.append(f"date: {document.document_date}")
+        if document.document_family_label:
+            parts.append(f"family: {document.document_family_label}")
+        if document.document_version_label:
+            parts.append(f"version: {document.document_version_label}")
         if document.document_entities:
             parts.append(
                 "entities: " + ", ".join(document.document_entities[:5])
             )
+        if document.document_topics:
+            parts.append("topics: " + ", ".join(document.document_topics[:6]))
 
         top_signals = [
             signal.value
@@ -2743,12 +5069,81 @@ class DocumentService:
         if top_signals:
             parts.append("signals: " + ", ".join(top_signals))
 
-        extracted_path = self.extracted_text_dir / f"{document.id}.txt"
-        if extracted_path.exists():
-            sample = extracted_path.read_text(encoding="utf-8")[:1200]
-            parts.append("sample: " + self._normalize_text_fragment(sample))
+        sample = sample_text
+        if sample is None:
+            extracted_path = self.extracted_text_dir / f"{document.id}.txt"
+            if extracted_path.exists():
+                sample = extracted_path.read_text(encoding="utf-8")
+        if sample:
+            parts.append("sample: " + self._normalize_text_fragment(sample[:1200]))
 
         return "\n".join(parts)
+
+    def _build_similarity_terms(
+        self,
+        document: DocumentRecord,
+        *,
+        extracted_text: str | None = None,
+    ) -> list[str]:
+        ignored_terms = {
+            "about",
+            "after",
+            "assistant",
+            "before",
+            "chapter",
+            "content",
+            "document",
+            "documents",
+            "file",
+            "files",
+            "from",
+            "page",
+            "pages",
+            "sample",
+            "section",
+            "source",
+            "text",
+            "title",
+            "uploaded",
+            "with",
+        }
+        weighted_terms: Counter[str] = Counter()
+
+        def add_terms(value: str, weight: int) -> None:
+            normalized = self._normalize_text_fragment(value)
+            for term in self._query_terms(normalized):
+                if len(term) < 4 or term in ignored_terms:
+                    continue
+                weighted_terms[term] += weight
+
+        add_terms(document.original_name, 5)
+        if document.document_title:
+            add_terms(document.document_title, 5)
+        if document.detected_document_type:
+            add_terms(document.detected_document_type, 3)
+        if document.source_kind:
+            add_terms(document.source_kind, 2)
+
+        for entity in document.document_entities[:10]:
+            add_terms(entity, 4)
+
+        for signal in sorted(
+            document.document_signals,
+            key=lambda item: item.score,
+            reverse=True,
+        )[:12]:
+            signal_weight = 4 if signal.score >= 0.5 else 2
+            add_terms(signal.normalized or signal.value, signal_weight)
+
+        sample = extracted_text
+        if sample is None:
+            extracted_path = self.extracted_text_dir / f"{document.id}.txt"
+            if extracted_path.exists():
+                sample = extracted_path.read_text(encoding="utf-8")
+        if sample:
+            add_terms(sample[:4000], 1)
+
+        return [term for term, _ in weighted_terms.most_common(40)]
 
     def _document_signal_term_set(self, document: DocumentRecord) -> set[str]:
         normalized_terms: set[str] = set()
@@ -2794,6 +5189,14 @@ class DocumentService:
         }
         theme_terms: set[str] = set()
 
+        cached_terms = {
+            term
+            for term in self._document_similarity_term_set(document)
+            if len(term) >= 4 and term not in ignored_terms
+        }
+        if cached_terms:
+            return cached_terms
+
         for signal in document.document_signals:
             if signal.score < 0.42:
                 continue
@@ -2810,6 +5213,12 @@ class DocumentService:
             for term in self._document_term_set(document.id)
             if len(term) >= 4 and term not in ignored_terms
         }
+
+    def _document_similarity_term_set(self, document: DocumentRecord) -> set[str]:
+        normalized_terms = self._normalize_similarity_terms(document.similarity_terms)
+        if normalized_terms:
+            return set(normalized_terms)
+        return set(self._build_similarity_terms(document))
 
     def _shared_document_theme_terms(
         self,

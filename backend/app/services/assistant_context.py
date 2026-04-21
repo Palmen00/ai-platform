@@ -174,6 +174,34 @@ class AssistantContextService:
         )
 
     def _looks_like_runtime_question(self, normalized: str) -> bool:
+        document_markers = (
+            "document",
+            "documents",
+            "file",
+            "files",
+            "uploaded",
+            "upload",
+            "pdf",
+            "docx",
+            "xlsx",
+            "pptx",
+            "json",
+            "csv",
+            "xml",
+            "png",
+            "jpg",
+            "jpeg",
+            "invoice",
+            "report",
+            "policy",
+            "contract",
+            "notes",
+            "guide",
+            "roadmap",
+        )
+        if any(marker in normalized for marker in document_markers):
+            return False
+
         markers = (
             "today",
             "current time",

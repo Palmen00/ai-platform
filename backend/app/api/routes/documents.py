@@ -4,6 +4,8 @@ from fastapi import Query
 from app.config import settings
 from app.schemas.document import (
     DocumentBatchProcessResponse,
+    DocumentIntelligenceRefreshResponse,
+    DocumentIntelligenceResponse,
     DocumentListResponse,
     DocumentPreviewResponse,
     DocumentProcessResponse,
@@ -20,6 +22,7 @@ from app.services.auth import (
 )
 from app.services.documents import DocumentService
 from app.services.logging_service import log_event
+from app.services.maintenance import maintenance_service
 from app.services.ollama import OllamaService
 from app.services.vector_store import VectorStoreService
 
@@ -70,6 +73,45 @@ def list_documents(
         available_sources=available_sources,
         available_type_facets=available_type_facets,
         available_source_facets=available_source_facets,
+    )
+
+
+@router.get("/intelligence", response_model=DocumentIntelligenceResponse)
+def get_document_intelligence(
+    session=Depends(require_authenticated_session),
+    session_token: str | None = Depends(get_session_token),
+) -> DocumentIntelligenceResponse:
+    return document_service.get_document_intelligence_status(
+        maintenance_status=maintenance_service.get_idle_status(),
+        is_admin=auth_service.has_admin_access(session_token),
+        viewer_username=session.username if session else None,
+    )
+
+
+@router.post(
+    "/intelligence/refresh",
+    response_model=DocumentIntelligenceRefreshResponse,
+)
+def refresh_document_intelligence(
+    session=Depends(require_admin_from_either_header),
+) -> DocumentIntelligenceRefreshResponse:
+    refreshed_document_ids = maintenance_service.run_idle_maintenance_step(force=True)
+    status = document_service.get_document_intelligence_status(
+        maintenance_status=maintenance_service.get_idle_status(),
+        is_admin=True,
+    )
+    log_event(
+        "document.intelligence.refresh",
+        "Manual document intelligence refresh executed.",
+        category="audit",
+        **get_actor_log_fields(session),
+        refreshed_count=len(refreshed_document_ids),
+        refreshed_document_ids=refreshed_document_ids,
+    )
+    return DocumentIntelligenceRefreshResponse(
+        refreshed_document_ids=refreshed_document_ids,
+        refreshed_count=len(refreshed_document_ids),
+        status=status,
     )
 
 

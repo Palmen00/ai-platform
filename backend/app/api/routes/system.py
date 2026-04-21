@@ -24,7 +24,7 @@ from app.services.auth import (
     require_admin_from_either_header,
 )
 from app.services.logging_service import log_event
-from app.services.maintenance import MaintenanceService
+from app.services.maintenance import maintenance_service
 from app.services.ollama import OllamaService
 from app.services.vector_store import VectorStoreService
 
@@ -33,7 +33,6 @@ ollama_service = OllamaService()
 document_service = DocumentService()
 conversation_service = ConversationService()
 vector_store_service = VectorStoreService()
-maintenance_service = MaintenanceService()
 
 
 def _directory_size(path: Path, recursive: bool = True) -> int:
@@ -149,6 +148,11 @@ def system_status() -> SystemStatusResponse:
     conversations = conversation_service.list_conversations()
     ollama_status = ollama_service.get_status()
     qdrant_status = vector_store_service.get_status()
+    maintenance_status = maintenance_service.get_idle_status()
+    document_intelligence = document_service.get_document_intelligence_status(
+        maintenance_status=maintenance_status,
+        is_admin=True,
+    )
     usage_items = _build_storage_usage_items()
     dependencies_ready = (
         ollama_status.status == "ok" and qdrant_status.status == "ok"
@@ -188,6 +192,8 @@ def system_status() -> SystemStatusResponse:
             retriable_documents=retriable_documents,
             auto_retry_recommended=dependencies_ready and retriable_documents > 0,
         ),
+        document_intelligence=document_intelligence.summary,
+        maintenance=maintenance_status,
     )
 
 

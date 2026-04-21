@@ -12,8 +12,11 @@ import {
   cleanupStorageTargets,
   createUser,
   CreateUserInput,
+  DocumentIntelligenceResponse,
+  refreshDocumentIntelligence,
   getAuthStatus,
   getBackupExport,
+  getDocumentIntelligence,
   getLogs,
   getUsers,
   importBackup,
@@ -52,6 +55,7 @@ const initialRuntimeSettings: RuntimeSettings = {
 
 type SettingsTab =
   | "overview"
+  | "documents"
   | "storage"
   | "cleanup"
   | "runtime"
@@ -90,6 +94,14 @@ const SETTINGS_TABS: SettingsTabMeta[] = [
     shortLabel: "Status",
     description:
       "See health, dependencies, storage footprint, and overall app readiness.",
+    group: "Workspace",
+  },
+  {
+    id: "documents",
+    label: siteConfig.settings.tabs.documents,
+    shortLabel: "Families & versions",
+    description:
+      "Inspect document families, version readiness, topic tagging, and background enrichment state.",
     group: "Workspace",
   },
   {
@@ -216,6 +228,13 @@ function SettingsPageContent() {
     null
   );
   const [systemStatusError, setSystemStatusError] = useState("");
+  const [documentIntelligence, setDocumentIntelligence] =
+    useState<DocumentIntelligenceResponse | null>(null);
+  const [documentIntelligenceError, setDocumentIntelligenceError] = useState("");
+  const [documentIntelligenceMessage, setDocumentIntelligenceMessage] =
+    useState("");
+  const [isRefreshingDocumentIntelligence, setIsRefreshingDocumentIntelligence] =
+    useState(false);
   const [models, setModels] = useState<ModelItem[]>([]);
   const [runtimeSettings, setRuntimeSettings] =
     useState<RuntimeSettings>(initialRuntimeSettings);
@@ -362,6 +381,17 @@ function SettingsPageContent() {
     }
   }
 
+  async function loadDocumentIntelligence() {
+    try {
+      const payload = await getDocumentIntelligence();
+      setDocumentIntelligence(payload);
+      setDocumentIntelligenceError("");
+    } catch {
+      setDocumentIntelligence(null);
+      setDocumentIntelligenceError("Could not load document intelligence.");
+    }
+  }
+
   async function loadAuditEvents() {
     setIsAuditLoading(true);
     setAuditError("");
@@ -443,6 +473,19 @@ function SettingsPageContent() {
       }
 
       try {
+        const payload = await getDocumentIntelligence();
+        if (isMounted) {
+          setDocumentIntelligence(payload);
+          setDocumentIntelligenceError("");
+        }
+      } catch {
+        if (isMounted) {
+          setDocumentIntelligence(null);
+          setDocumentIntelligenceError("Could not load document intelligence.");
+        }
+      }
+
+      try {
         const shouldLoadProtectedRuntime =
           !nextAuthStatus?.auth_enabled ||
           !nextAuthStatus?.auth_configured ||
@@ -491,6 +534,14 @@ function SettingsPageContent() {
       window.clearInterval(intervalId);
     };
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "documents" || !isAuthenticated) {
+      return;
+    }
+
+    void loadDocumentIntelligence();
+  }, [activeTab, isAuthenticated]);
 
   useEffect(() => {
     if (activeTab !== "audit" || !isAdminUnlocked) {
@@ -695,6 +746,29 @@ function SettingsPageContent() {
     }
   }
 
+  async function handleRefreshDocumentIntelligence() {
+    setDocumentIntelligenceError("");
+    setDocumentIntelligenceMessage("");
+    setIsRefreshingDocumentIntelligence(true);
+
+    try {
+      const payload = await refreshDocumentIntelligence();
+      setDocumentIntelligence(payload.status);
+      setDocumentIntelligenceMessage(
+        payload.refreshed_count > 0
+          ? siteConfig.settings.documentsControls.refreshSuccess
+          : siteConfig.settings.documentsControls.refreshNoop
+      );
+      await loadSystemOverview();
+    } catch {
+      setDocumentIntelligenceError(
+        siteConfig.settings.documentsControls.refreshError
+      );
+    } finally {
+      setIsRefreshingDocumentIntelligence(false);
+    }
+  }
+
   async function handleExportBackup() {
     setExportError("");
     setIsExporting(true);
@@ -811,6 +885,21 @@ function SettingsPageContent() {
     }
 
     return `${value.toFixed(1)} ${units[unitIndex]}`;
+  }
+
+  function formatDateTime(value: string) {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+
+    return parsed.toLocaleString([], {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   }
 
   function compareStorageItems(
@@ -1311,6 +1400,42 @@ function SettingsPageContent() {
                       {systemStatus?.storage.failed_documents ?? 0}
                     </p>
                   </div>
+
+                  <div className={settingsTileClass}>
+                    <p className="text-sm font-medium text-slate-500">
+                      {siteConfig.settings.overviewCards.documentFamilies}
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                      {systemStatus?.document_intelligence.total_families ?? 0}
+                    </p>
+                  </div>
+
+                  <div className={settingsTileClass}>
+                    <p className="text-sm font-medium text-slate-500">
+                      {siteConfig.settings.overviewCards.versionedDocuments}
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                      {systemStatus?.document_intelligence.versioned_documents ?? 0}
+                    </p>
+                  </div>
+
+                  <div className={settingsTileClass}>
+                    <p className="text-sm font-medium text-slate-500">
+                      {siteConfig.settings.overviewCards.topicReadyDocuments}
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                      {systemStatus?.document_intelligence.topic_ready_documents ?? 0}
+                    </p>
+                  </div>
+
+                  <div className={settingsTileClass}>
+                    <p className="text-sm font-medium text-slate-500">
+                      {siteConfig.settings.overviewCards.maintenanceBacklog}
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                      {systemStatus?.maintenance.pending_documents ?? 0}
+                    </p>
+                  </div>
                 </div>
 
                 <div className={`mt-4 ${settingsSubtlePanelClass}`}>
@@ -1324,6 +1449,223 @@ function SettingsPageContent() {
               </div>
             </section>
           </>
+        )}
+
+        {activeTab === "documents" && (
+          <div className="space-y-4">
+            <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">
+                  {siteConfig.settings.overviewCards.documentFamilies}
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {documentIntelligence?.summary.total_families ?? 0}
+                </p>
+              </div>
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">
+                  {siteConfig.settings.overviewCards.versionedDocuments}
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {documentIntelligence?.summary.versioned_documents ?? 0}
+                </p>
+              </div>
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">
+                  {siteConfig.settings.overviewCards.topicReadyDocuments}
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {documentIntelligence?.summary.topic_ready_documents ?? 0}
+                </p>
+              </div>
+              <div className={settingsTileClass}>
+                <p className="text-sm font-medium text-slate-500">
+                  {siteConfig.settings.overviewCards.maintenanceBacklog}
+                </p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
+                  {documentIntelligence?.maintenance.pending_documents ?? 0}
+                </p>
+              </div>
+            </section>
+
+            {(documentIntelligenceError || documentIntelligenceMessage) && (
+              <div
+                className={`rounded-xl px-3 py-2.5 text-sm ${
+                  documentIntelligenceError
+                    ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                    : "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200"
+                }`}
+              >
+                {documentIntelligenceError || documentIntelligenceMessage}
+              </div>
+            )}
+
+            <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+              <div className={settingsPanelClass}>
+                <div className="flex flex-col gap-4 border-b border-slate-200 pb-4 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                      {siteConfig.settings.documentsControls.familiesTitle}
+                    </h3>
+                    <p className="mt-1.5 max-w-2xl text-sm leading-6 text-slate-500">
+                      {siteConfig.settings.documentsSubtitle}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleRefreshDocumentIntelligence()}
+                    disabled={!isAdminUnlocked || isRefreshingDocumentIntelligence}
+                    className={settingsSecondaryButtonClass}
+                  >
+                    {isRefreshingDocumentIntelligence
+                      ? siteConfig.settings.documentsControls.refreshingButton
+                      : siteConfig.settings.documentsControls.refreshButton}
+                  </button>
+                </div>
+
+                {documentIntelligence?.families?.length ? (
+                  <div className="mt-4 space-y-3">
+                    {documentIntelligence.families.map((family) => (
+                      <div key={family.family_key} className={settingsSubtlePanelClass}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-900">
+                              {family.family_label}
+                            </p>
+                            <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-400">
+                              {family.document_count} documents
+                            </p>
+                          </div>
+                          <div className="text-right text-sm text-slate-500">
+                            <p className="font-medium text-slate-900">
+                              {family.latest_document_name}
+                            </p>
+                            <p>{family.latest_document_date || "No date"}</p>
+                          </div>
+                        </div>
+                        {family.topics.length > 0 && (
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {family.topics.map((topic) => (
+                              <span
+                                key={`${family.family_key}-${topic}`}
+                                className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500"
+                              >
+                                {topic}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <div className="mt-3 space-y-2 text-sm text-slate-600">
+                          {family.members.map((member) => (
+                            <div
+                              key={member.document_id}
+                              className="flex items-center justify-between gap-3"
+                            >
+                              <span className="truncate">{member.document_name}</span>
+                              <span className="shrink-0 text-xs uppercase tracking-[0.14em] text-slate-400">
+                                {member.version_label || member.document_date || "tracked"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
+                    {siteConfig.settings.documentsControls.emptyFamilies}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-4">
+                <section className={settingsPanelClass}>
+                  <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                    {siteConfig.settings.documentsControls.maintenanceTitle}
+                  </h3>
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                    <div className={settingsTileClass}>
+                      <p className="text-sm font-medium text-slate-500">Mode</p>
+                      <p className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                        {documentIntelligence?.maintenance.enabled ? "Enabled" : "Off"}
+                      </p>
+                    </div>
+                    <div className={settingsTileClass}>
+                      <p className="text-sm font-medium text-slate-500">Pending</p>
+                      <p className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                        {documentIntelligence?.maintenance.pending_documents ?? 0}
+                      </p>
+                    </div>
+                    <div className={settingsTileClass}>
+                      <p className="text-sm font-medium text-slate-500">Idle threshold</p>
+                      <p className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                        {documentIntelligence?.maintenance.user_idle_seconds ?? 0}s
+                      </p>
+                    </div>
+                    <div className={settingsTileClass}>
+                      <p className="text-sm font-medium text-slate-500">Batch size</p>
+                      <p className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
+                        {documentIntelligence?.maintenance.batch_size ?? 0}
+                      </p>
+                    </div>
+                  </div>
+                  <div className={`mt-4 ${settingsSubtlePanelClass}`}>
+                    <div className="flex items-center justify-between gap-3 text-sm text-slate-600">
+                      <span>Last run</span>
+                      <span className="font-medium text-slate-900">
+                        {documentIntelligence?.maintenance.last_run_at
+                          ? formatDateTime(documentIntelligence.maintenance.last_run_at)
+                          : "Not yet"}
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-3 text-sm text-slate-600">
+                      <span>User idle for</span>
+                      <span className="font-medium text-slate-900">
+                        {Math.round(
+                          documentIntelligence?.maintenance
+                            .seconds_since_user_activity ?? 0
+                        )}
+                        s
+                      </span>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-3 text-sm text-slate-600">
+                      <span>Active jobs</span>
+                      <span className="font-medium text-slate-900">
+                        {Object.keys(
+                          documentIntelligence?.maintenance.active_jobs ?? {}
+                        ).length || 0}
+                      </span>
+                    </div>
+                  </div>
+                </section>
+
+                <section className={settingsPanelClass}>
+                  <h3 className="text-lg font-semibold tracking-tight text-slate-950">
+                    {siteConfig.settings.documentsControls.staleTitle}
+                  </h3>
+                  {documentIntelligence?.stale_documents?.length ? (
+                    <div className="mt-4 space-y-2">
+                      {documentIntelligence.stale_documents.map((document) => (
+                        <div
+                          key={document.document_id}
+                          className="flex items-center justify-between gap-3 border-b border-slate-200/80 pb-2 text-sm text-slate-700 last:border-b-0 last:pb-0"
+                        >
+                          <span className="truncate">{document.document_name}</span>
+                          <span className="shrink-0 text-xs uppercase tracking-[0.14em] text-slate-400">
+                            {document.version_label || document.document_date || "queued"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50/80 px-4 py-8 text-center text-sm text-slate-500">
+                      {siteConfig.settings.documentsControls.emptyStale}
+                    </div>
+                  )}
+                </section>
+              </div>
+            </section>
+          </div>
         )}
 
         {activeTab === "storage" && (

@@ -65,6 +65,7 @@ class ChatOrchestrator:
             user_message,
             limit=settings.retrieval_limit,
             allowed_document_ids=payload.document_ids,
+            history=payload.history,
             is_admin=is_admin,
             viewer_username=viewer_username,
         )
@@ -82,6 +83,15 @@ class ChatOrchestrator:
                 user_message
             )
             or self.retrieval_service.document_service.is_document_similarity_query(
+                user_message
+            )
+            or self.retrieval_service.document_service.is_document_version_query(
+                user_message
+            )
+            or self.retrieval_service.document_service.is_document_change_query(
+                user_message
+            )
+            or self.retrieval_service.document_service.is_document_conflict_query(
                 user_message
             )
             or self.retrieval_service.document_service.is_document_metadata_inventory_query(

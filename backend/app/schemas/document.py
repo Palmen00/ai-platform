@@ -9,6 +9,68 @@ class DocumentSignal(BaseModel):
     source: str | None = None
 
 
+class DocumentSimilarityMatch(BaseModel):
+    document_id: str
+    document_name: str
+    score: float
+    shared_terms: list[str] = Field(default_factory=list)
+    reason: str | None = None
+
+
+class DocumentFamilyMember(BaseModel):
+    document_id: str
+    document_name: str
+    document_date: str | None = None
+    version_label: str | None = None
+    uploaded_at: str | None = None
+
+
+class DocumentFamilySummary(BaseModel):
+    family_key: str
+    family_label: str
+    document_count: int
+    latest_document_id: str
+    latest_document_name: str
+    latest_document_date: str | None = None
+    topics: list[str] = Field(default_factory=list)
+    members: list[DocumentFamilyMember] = Field(default_factory=list)
+
+
+class DocumentIntelligenceSummary(BaseModel):
+    total_documents: int = 0
+    processed_documents: int = 0
+    profile_ready_documents: int = 0
+    family_ready_documents: int = 0
+    versioned_documents: int = 0
+    topic_ready_documents: int = 0
+    total_families: int = 0
+    stale_documents: int = 0
+
+
+class DocumentMaintenanceStatus(BaseModel):
+    enabled: bool = False
+    poll_seconds: int = 0
+    user_idle_seconds: int = 0
+    batch_size: int = 0
+    last_run_at: str | None = None
+    pending_documents: int = 0
+    seconds_since_user_activity: float = 0.0
+    active_jobs: dict[str, int] = Field(default_factory=dict)
+
+
+class DocumentIntelligenceResponse(BaseModel):
+    summary: DocumentIntelligenceSummary
+    maintenance: DocumentMaintenanceStatus
+    families: list[DocumentFamilySummary] = Field(default_factory=list)
+    stale_documents: list[DocumentFamilyMember] = Field(default_factory=list)
+
+
+class DocumentIntelligenceRefreshResponse(BaseModel):
+    refreshed_document_ids: list[str] = Field(default_factory=list)
+    refreshed_count: int = 0
+    status: DocumentIntelligenceResponse
+
+
 class DocumentRecord(BaseModel):
     id: str
     original_name: str
@@ -33,6 +95,16 @@ class DocumentRecord(BaseModel):
     document_date: str | None = None
     document_date_label: str | None = None
     document_date_kind: str | None = None
+    document_family_key: str | None = None
+    document_family_label: str | None = None
+    document_version_label: str | None = None
+    document_version_number: int | None = None
+    document_topics: list[str] = Field(default_factory=list)
+    document_summary_anchor: str | None = None
+    similarity_profile: str | None = None
+    similarity_terms: list[str] = Field(default_factory=list)
+    similar_documents: list[DocumentSimilarityMatch] = Field(default_factory=list)
+    similarity_updated_at: str | None = None
     processing_status: str = "pending"
     processing_stage: str = "queued"
     processing_started_at: str | None = None

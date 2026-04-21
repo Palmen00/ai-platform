@@ -414,6 +414,7 @@ export const siteConfig = {
     },
     tabs: {
       overview: "Overview",
+      documents: "Documents",
       storage: "Storage",
       cleanup: "Cleanup",
       runtime: "Runtime",
@@ -490,6 +491,25 @@ export const siteConfig = {
       indexedDocuments: "Indexed docs",
       failedDocuments: "Failed docs",
       totalLocalStorage: "Total local storage",
+      documentFamilies: "Document families",
+      versionedDocuments: "Versioned docs",
+      topicReadyDocuments: "Tagged docs",
+      maintenanceBacklog: "Pending enrichment",
+    },
+    documentsTitle: "Document intelligence",
+    documentsSubtitle:
+      "See family grouping, version readiness, topic coverage, and idle enrichment state.",
+    documentsControls: {
+      refreshButton: "Run one maintenance step",
+      refreshingButton: "Refreshing...",
+      refreshSuccess: "Document intelligence refreshed.",
+      refreshNoop: "No pending document intelligence work was found.",
+      refreshError: "Could not refresh document intelligence.",
+      familiesTitle: "Top document families",
+      staleTitle: "Pending intelligence",
+      maintenanceTitle: "Idle maintenance",
+      emptyFamilies: "No document families have been detected yet.",
+      emptyStale: "No documents are waiting for intelligence backfill.",
     },
     dependenciesTitle: "Dependencies",
     dependenciesSubtitle:

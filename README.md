@@ -49,12 +49,20 @@ For admin protection and a stricter runtime profile, these env values are now av
 - `ASSISTANT_INTELLIGENCE_ENABLED=true`
 - `ASSISTANT_BASE_PACKS=base,local-ai-os`
 - `ASSISTANT_OPTIONAL_PACKS=code,reference`
+- `IDLE_MAINTENANCE_ENABLED=true`
+- `IDLE_MAINTENANCE_USER_IDLE_SECONDS=240`
+- `IDLE_MAINTENANCE_POLL_SECONDS=45`
+- `IDLE_MAINTENANCE_BATCH_SIZE=1`
 
 When `AUTH_ENABLED` is active and fully configured, `Settings`, `Connectors`, logs, runtime changes, cleanup, and backup import/export require admin sign-in from the UI. `SAFE_MODE` additionally blocks higher-risk operations such as cleanup, backup import/export, runtime setting changes, and manual connector imports.
 
 Fresh installs can also enable a small built-in assistant intelligence layer. It injects local date, time, weekday, and ISO week into prompts and adds compact starter prompt packs for general answering, Local AI OS product guidance, coding help, and light reference behavior, so the assistant feels more useful even before any documents are uploaded.
 
+Document intelligence now also keeps working after upload time. New and reprocessed files get family grouping, lightweight version hints, topic tags, and cached similarity links. An idle maintenance worker can backfill the same metadata for older files when the server has been quiet long enough, so later document questions cost less work at query time.
+
 Admin sessions now use an `HttpOnly` cookie instead of browser storage. New installs should prefer `ADMIN_PASSWORD_HASH` over cleartext `ADMIN_PASSWORD`, and `.env.ubuntu` is now written with `chmod 600` by the Ubuntu configure phase. The installer/bootstrap flow now also writes `ADMIN_USERNAME`, so the first bootstrap admin can be named during setup instead of being fixed in code.
+
+The `Settings` screen now includes a dedicated document intelligence view for family grouping, version coverage, topic-tag readiness, and idle-maintenance status. That page can also trigger a single maintenance step manually when an admin wants to refresh stale document metadata without reprocessing everything.
 
 Optional OCR support for scanned PDFs and image files:
 

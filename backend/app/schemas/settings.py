@@ -1,5 +1,8 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.document import DocumentMaintenanceStatus
+from app.schemas.document import DocumentIntelligenceSummary
+
 
 class RuntimeSettings(BaseModel):
     ollama_base_url: str
@@ -91,3 +94,9 @@ class SystemStatusResponse(BaseModel):
     qdrant: DependencyStatus
     storage: StorageStatus
     recovery: RecoveryStatus
+    document_intelligence: DocumentIntelligenceSummary = Field(
+        default_factory=DocumentIntelligenceSummary
+    )
+    maintenance: DocumentMaintenanceStatus = Field(
+        default_factory=DocumentMaintenanceStatus
+    )
