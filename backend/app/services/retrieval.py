@@ -337,6 +337,17 @@ class RetrievalService:
                 viewer_username=viewer_username,
             )
 
+        if self.document_service.is_document_title_query(query):
+            title_answer = self.document_service.summarize_document_titles(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if title_answer:
+                return title_answer
+
         if self.document_service.is_document_entity_detail_query(query):
             entity_answer = self.document_service.summarize_document_companies(
                 query,

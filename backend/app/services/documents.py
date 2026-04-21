@@ -2169,6 +2169,108 @@ class DocumentService:
             f"The first few are {leading_documents}, and {len(matching_documents) - 4} more."
         )
 
+    def is_document_title_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        title_markers = ("title", "rubrik", "titel")
+        if not any(marker in lowered for marker in title_markers):
+            return False
+
+        return (
+            self.extract_requested_document_type(query) is not None
+            or self.is_document_reference_query(query)
+            or any(
+                marker in lowered
+                for marker in (
+                    "document",
+                    "documents",
+                    "file",
+                    "files",
+                    "dokument",
+                    "fil",
+                    "filer",
+                )
+            )
+        )
+
+    def summarize_document_titles(
+        self,
+        query: str,
+        allowed_document_ids: list[str] | None = None,
+        history: list | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        if not self.is_document_title_query(query):
+            return None
+
+        resolved_document_ids = self.find_referenced_documents(
+            query,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if not resolved_document_ids:
+            resolved_document_ids = self.resolve_follow_up_document_ids(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
+        documents: list[DocumentRecord] = []
+        if resolved_document_ids:
+            for document_id in resolved_document_ids:
+                document = self.get_document_for_viewer(
+                    document_id,
+                    is_admin=is_admin,
+                    viewer_username=viewer_username,
+                )
+                if document:
+                    documents.append(document)
+        else:
+            documents = self.find_documents_by_metadata(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
+        if not documents:
+            return None
+
+        title_rows = [
+            (document.original_name, document.document_title)
+            for document in documents[:4]
+            if document.document_title
+        ]
+        if not title_rows:
+            return None
+
+        if len(title_rows) == 1:
+            document_name, title = title_rows[0]
+            return f"The title in {document_name} is {title}."
+
+        requested_type = self.extract_requested_document_type(query)
+        type_label = (
+            self._format_document_type_label(requested_type)
+            if requested_type
+            else "documents"
+        )
+        title_list = "; ".join(
+            f"{document_name}: {title}" for document_name, title in title_rows
+        )
+        extra_count = max(0, len(documents) - len(title_rows))
+        suffix = (
+            f" I found {extra_count} more matching documents without detected titles."
+            if extra_count
+            else ""
+        )
+        return (
+            f"I found {len(title_rows)} matching {type_label} with detected titles: "
+            f"{title_list}.{suffix}"
+        )
+
     def summarize_document_entities_by_metadata(
         self,
         query: str,
