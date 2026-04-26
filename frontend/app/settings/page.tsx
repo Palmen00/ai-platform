@@ -195,19 +195,19 @@ const SETTINGS_TABS: SettingsTabMeta[] = [
 ];
 
 const settingsPanelClass =
-  "rounded-[1.15rem] border border-slate-200/90 bg-white/95 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]";
+  "rounded-lg border border-slate-200/90 bg-white p-3 shadow-[0_6px_16px_rgba(15,23,42,0.035)]";
 const settingsPanelCompactClass =
-  "rounded-[1.15rem] border border-slate-200/90 bg-white/95 px-5 py-4 shadow-[0_10px_24px_rgba(15,23,42,0.04)]";
+  "rounded-lg border border-slate-200/90 bg-white px-4 py-3 shadow-[0_6px_16px_rgba(15,23,42,0.035)]";
 const settingsTileClass =
-  "rounded-[1rem] border border-slate-200 bg-white px-4 py-3";
+  "rounded-lg border border-slate-200 bg-white px-3 py-2.5";
 const settingsSubtlePanelClass =
-  "rounded-[1rem] border border-slate-200 bg-slate-50/85 p-4";
+  "rounded-lg border border-slate-200 bg-slate-50/85 p-3";
 const settingsInputClass =
-  "w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 outline-none focus:border-slate-400";
+  "w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400";
 const settingsPrimaryButtonClass =
-  "rounded-xl bg-slate-950 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300";
+  "rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300";
 const settingsSecondaryButtonClass =
-  "rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60";
+  "rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60";
 
 function SettingsPageContent() {
   const router = useRouter();

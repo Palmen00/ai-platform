@@ -15,13 +15,14 @@ This folder now uses Markdown as the primary documentation format.
 9. [Installation Plan](./installation-plan.md)
 10. [Linux Installer V1](./linux-installer-v1.md)
 11. [Linux Installer V1 Checklist](./linux-installer-v1-checklist.md)
-12. [Development Rules](./development-rules.md)
-13. [UI Style Guide](./ui-style-guide.md)
-14. [Security Pentest Report v2](./security-pentest-report-v2-2026-04-06.md)
-15. [Upload And OCR E2E](./upload-ocr-e2e-2026-04-07.md)
-16. [SharePoint Mock Smoke](./sharepoint-mock-smoke-2026-04-07.md)
-17. [Roadmap](./roadmap.md)
-18. [Latest Session Handoff](./session-handoff-2026-04-05.md)
+12. [v0.1.0-rc1 Release Candidate Checklist](./release-candidate-v0.1.0-rc1.md)
+13. [Development Rules](./development-rules.md)
+14. [UI Style Guide](./ui-style-guide.md)
+15. [Security Pentest Report v2](./security-pentest-report-v2-2026-04-06.md)
+16. [Upload And OCR E2E](./upload-ocr-e2e-2026-04-07.md)
+17. [SharePoint Mock Smoke](./sharepoint-mock-smoke-2026-04-07.md)
+18. [Roadmap](./roadmap.md)
+19. [Latest Session Handoff](./session-handoff-2026-04-05.md)
 
 ## Notes
 

@@ -21,6 +21,28 @@ The PDF files in `Docs/` are kept as legacy source material, but the `.md` files
 
 ## Setup
 
+## Linux Server Install
+
+For a fresh Ubuntu server install, use the current release candidate:
+
+```bash
+curl -fsSL -o install-local-ai-os.sh https://raw.githubusercontent.com/Palmen00/ai-platform/v0.1.0-rc1/scripts/deploy/bootstrap-from-web.sh
+chmod +x install-local-ai-os.sh
+./install-local-ai-os.sh --ref v0.1.0-rc1
+```
+
+For an unattended install, create an answer file and pass it through `--installer-args`:
+
+```bash
+./install-local-ai-os.sh \
+  --ref v0.1.0-rc1 \
+  --installer-args '--skip-bootstrap --non-interactive --answer-file /path/to/local-ai-os-answer.env'
+```
+
+The Ubuntu installer writes `.env.ubuntu` with `chmod 600`, stores data under the selected `DATA_ROOT`, starts the Docker stack, and runs post-install checks for backend, frontend, Qdrant, Ollama, and OCR tooling.
+
+## Local Development Setup
+
 1. Copy `.env.example` to `.env` and adjust values if needed.
 2. Install backend dependencies with `py -3 -m pip install -r backend/requirements.txt`.
 3. Install frontend dependencies with `npm install` in `frontend/`.
