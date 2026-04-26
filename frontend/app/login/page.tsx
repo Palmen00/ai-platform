@@ -97,8 +97,8 @@ function LoginPageContent() {
 
   if (isLoading) {
     return (
-      <AppShell contentClassName="p-4 md:p-6 xl:p-8">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-10 text-sm text-slate-600 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8">
+      <AppShell contentClassName="p-4 md:p-6">
+        <section className="max-w-md rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
           Loading login...
         </section>
       </AppShell>
@@ -107,20 +107,20 @@ function LoginPageContent() {
 
   if (authStatus && !authStatus.auth_enabled) {
     return (
-      <AppShell contentClassName="p-4 md:p-6 xl:p-8">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8 md:py-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+      <AppShell contentClassName="p-4 md:p-6">
+        <section className="max-w-lg rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
             Login
           </p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
             Authentication is off in this environment
           </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+          <p className="mt-2 text-sm leading-6 text-slate-600">
             This environment is running without enforced login. You can continue straight into the app.
           </p>
           <Link
             href={nextPath}
-            className="mt-5 inline-flex rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+            className="mt-4 inline-flex rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
           >
             Continue
           </Link>
@@ -131,29 +131,29 @@ function LoginPageContent() {
 
   if (authStatus?.authenticated) {
     return (
-      <AppShell contentClassName="p-4 md:p-6 xl:p-8">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8 md:py-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+      <AppShell contentClassName="p-4 md:p-6">
+        <section className="max-w-lg rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
             Login
           </p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+          <h2 className="mt-2 text-xl font-semibold tracking-tight text-slate-950">
             You are already signed in
           </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
+          <p className="mt-2 text-sm leading-6 text-slate-600">
             Signed in as <span className="font-medium text-slate-900">{authStatus.username}</span> with the role <span className="font-medium text-slate-900">{authStatus.role}</span>.
           </p>
-          <div className="mt-5 flex flex-wrap gap-3">
+          <div className="mt-4 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => router.replace(nextPath)}
-              className="rounded-2xl bg-slate-950 px-4 py-3 text-sm font-medium text-white transition hover:bg-slate-800"
+              className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
             >
               Continue
             </button>
             <button
               type="button"
               onClick={() => void handleSignOut()}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
             >
               Sign out
             </button>
@@ -164,63 +164,63 @@ function LoginPageContent() {
   }
 
   return (
-    <AppShell contentClassName="p-4 md:p-6 xl:p-8">
-      <div className="space-y-6">
-        <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8 md:py-8">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-400">
+    <AppShell contentClassName="p-4 md:p-6">
+      <div className="max-w-md">
+        <section className="mb-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
             Login
           </p>
-          <h2 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950 md:text-[2.2rem]">
+          <h2 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950">
             Sign in to Local AI OS
           </h2>
-          <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">
-            Viewer accounts can use chat and knowledge. Admin accounts can also manage settings, connectors, users, and protected document actions.
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Use a local account to load saved chats and document permissions.
           </p>
         </section>
 
         <form
           onSubmit={handleSubmit}
-          className="max-w-xl rounded-[2rem] border border-slate-200/80 bg-white/88 p-6 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:p-8"
+          className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm"
         >
           {error && (
-            <div className="mb-5 rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700 ring-1 ring-red-200">
+            <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200">
               {error}
             </div>
           )}
 
           <label className="space-y-2">
-            <span className="text-sm font-medium text-slate-700">Username</span>
+            <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Username</span>
             <input
               type="text"
               value={username}
               onChange={(event) => setUsername(event.target.value)}
               placeholder="Enter username"
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
             />
           </label>
 
           <label className="mt-4 block space-y-2">
-            <span className="text-sm font-medium text-slate-700">Password</span>
+            <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">Password</span>
             <input
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="Enter password"
-              className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-slate-400"
+              className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
             />
           </label>
 
-          <div className="mt-5 flex justify-between gap-3">
+          <div className="mt-4 flex justify-between gap-2">
             <Link
               href={nextPath}
-              className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
+              className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-100"
             >
               Back
             </Link>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="rounded-2xl bg-slate-950 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+              className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
               {isSubmitting ? "Signing in..." : "Sign in"}
             </button>
@@ -235,8 +235,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <AppShell contentClassName="p-4 md:p-6 xl:p-8">
-          <section className="rounded-[2rem] border border-slate-200/80 bg-white/88 px-6 py-10 text-sm text-slate-600 shadow-[0_28px_70px_rgba(15,23,42,0.10)] backdrop-blur md:px-8">
+        <AppShell contentClassName="p-4 md:p-6">
+          <section className="max-w-md rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
             Loading login...
           </section>
         </AppShell>

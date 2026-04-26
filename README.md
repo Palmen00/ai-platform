@@ -41,6 +41,8 @@ For an unattended install, create an answer file and pass it through `--installe
 
 The Ubuntu installer writes `.env.ubuntu` with `chmod 600`, stores data under the selected `DATA_ROOT`, starts the Docker stack, and runs post-install checks for backend, frontend, Qdrant, Ollama, and OCR tooling.
 
+See [v0.1.0-rc1 release notes](Docs/release-notes-v0.1.0-rc1.md) for what has been verified and what remains before a final beta release.
+
 ## Local Development Setup
 
 1. Copy `.env.example` to `.env` and adjust values if needed.

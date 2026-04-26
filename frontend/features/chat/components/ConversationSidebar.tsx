@@ -216,7 +216,7 @@ export function ConversationSidebar() {
   const newChatHref = requiresLogin ? "/login?next=/chat" : "/chat";
 
   return (
-    <section className="space-y-4">
+    <section className="space-y-3">
       <div className="flex items-center justify-between gap-3 px-2">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold tracking-tight text-slate-900">
@@ -228,7 +228,7 @@ export function ConversationSidebar() {
         </div>
         <Link
           href={newChatHref}
-          className="rounded-2xl border border-slate-200 bg-white px-3 py-2 text-[11px] font-semibold text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
+          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-900 shadow-sm transition hover:border-slate-300 hover:bg-slate-50"
         >
           {requiresLogin ? "Sign in" : siteConfig.chat.newConversationLabel}
         </Link>
@@ -243,37 +243,37 @@ export function ConversationSidebar() {
             setOpenMenuConversationId("");
           }}
           placeholder={siteConfig.chat.searchConversationPlaceholder}
-          className="w-full rounded-2xl border border-slate-200 bg-white px-3.5 py-3 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-300"
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-slate-300"
         />
       </div>
 
       {error && (
-        <div className="mb-3 rounded-2xl bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200">
+        <div className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 ring-1 ring-red-200">
           {error}
         </div>
       )}
 
       <div ref={containerRef} className="space-y-1 pr-1">
         {requiresLogin && !isLoading && (
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-600">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">
             Sign in through Login to load saved conversations.
           </div>
         )}
 
         {isLoading && (
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
             {siteConfig.chat.loadingConversationsLabel}
           </div>
         )}
 
         {!isLoading && !requiresLogin && conversations.length === 0 && (
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
             {siteConfig.chat.emptyConversationLabel}
           </div>
         )}
 
         {!isLoading && !requiresLogin && conversations.length > 0 && filteredConversations.length === 0 && (
-          <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">
             {siteConfig.chat.emptyFilteredConversationLabel}
           </div>
         )}
@@ -288,7 +288,7 @@ export function ConversationSidebar() {
           return (
             <div
               key={conversation.id}
-              className={`relative block rounded-2xl border px-3 py-2.5 transition ${
+              className={`relative block rounded-lg border px-2.5 py-2 transition ${
                 isActive
                   ? "border-slate-200 bg-white text-slate-950 shadow-sm"
                   : "border-transparent bg-transparent text-slate-700 hover:border-slate-200 hover:bg-white hover:shadow-sm"
@@ -303,14 +303,14 @@ export function ConversationSidebar() {
                     value={titleDraft}
                     onChange={(event) => setTitleDraft(event.target.value)}
                     placeholder={siteConfig.chat.renameConversationPlaceholder}
-                    className="w-full rounded-xl border border-slate-300 bg-white px-2.5 py-2 text-[13px] text-slate-950 outline-none transition focus:border-slate-500"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-2 text-[13px] text-slate-950 outline-none transition focus:border-slate-500"
                     autoFocus
                   />
                   <div className="flex gap-2">
                     <button
                       type="submit"
                       disabled={!titleDraft.trim() || isPending}
-                      className="rounded-xl bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                      className="rounded-lg bg-slate-950 px-2.5 py-1.5 text-[11px] font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                     >
                       {siteConfig.chat.renameConversationSaveLabel}
                     </button>
@@ -318,7 +318,7 @@ export function ConversationSidebar() {
                       type="button"
                       onClick={cancelRename}
                       disabled={isPending}
-                      className="rounded-xl border border-slate-300 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="rounded-lg border border-slate-300 px-2.5 py-1.5 text-[11px] font-semibold text-slate-600 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       {siteConfig.chat.renameConversationCancelLabel}
                     </button>
@@ -351,7 +351,7 @@ export function ConversationSidebar() {
                           )
                         }
                         disabled={isPending}
-                        className={`flex h-8 w-8 items-center justify-center rounded-xl transition ${
+                        className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${
                           isActive
                             ? "text-slate-500 hover:bg-slate-100 hover:text-slate-700"
                             : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
@@ -370,7 +370,7 @@ export function ConversationSidebar() {
 
                       {openMenuConversationId === conversation.id && (
                         <div
-                          className="absolute right-0 top-9 z-20 min-w-32 rounded-2xl border border-slate-200 bg-white shadow-lg"
+                          className="absolute right-0 top-9 z-20 min-w-32 rounded-lg border border-slate-200 bg-white shadow-lg"
                         >
                           <button
                             type="button"
@@ -400,7 +400,7 @@ export function ConversationSidebar() {
       {!requiresLogin && hasMoreConversations && (
         <button
           onClick={() => setShowAll((current) => !current)}
-          className="w-full rounded-2xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+          className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
         >
           {showAll
             ? siteConfig.chat.showLessConversationsLabel

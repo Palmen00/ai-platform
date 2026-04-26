@@ -341,7 +341,7 @@ export function AppShell({
     <main className="min-h-screen bg-neutral-100 text-neutral-900">
       <div
         className={`grid min-h-screen grid-cols-1 ${
-          isSidebarHidden ? "" : "lg:grid-cols-[280px_1fr]"
+          isSidebarHidden ? "" : "lg:grid-cols-[260px_1fr]"
         }`}
       >
         <aside
@@ -349,17 +349,17 @@ export function AppShell({
             isSidebarHidden ? "hidden" : ""
           }`}
         >
-            <div className="flex h-full min-h-0 flex-col p-3.5 lg:sticky lg:top-0 lg:h-screen lg:p-4">
+            <div className="flex h-full min-h-0 flex-col p-3 lg:sticky lg:top-0 lg:h-screen">
               <div className="flex items-center justify-between gap-4 px-1">
                 <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-950 text-sm font-semibold text-white shadow-sm">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-950 text-xs font-semibold text-white shadow-sm">
                     {getUserInitials(siteConfig.name)}
                   </div>
                   <div className="min-w-0">
-                    <p className="truncate text-[1.3rem] font-semibold tracking-tight text-slate-950">
+                    <p className="truncate text-lg font-semibold tracking-tight text-slate-950">
                       {siteConfig.name}
                     </p>
-                    <p className="mt-0.5 text-[13px] text-slate-500">
+                    <p className="mt-0.5 text-xs text-slate-500">
                       {siteConfig.dashboard.eyebrow}
                     </p>
                   </div>
@@ -368,7 +368,7 @@ export function AppShell({
               <button
                 type="button"
                 onClick={() => setIsSidebarHidden(true)}
-                className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800"
                 aria-label={siteConfig.shell.closeSidebarLabel}
                 title={siteConfig.shell.closeSidebarLabel}
               >
@@ -389,8 +389,8 @@ export function AppShell({
               </button>
             </div>
 
-            <div className="sidebar-scroll-left mt-8 min-h-0 flex-1 overflow-y-auto pl-1">
-              <div className="space-y-7 pb-6 pr-3">
+            <div className="sidebar-scroll-left mt-7 min-h-0 flex-1 overflow-y-auto pl-1">
+              <div className="space-y-6 pb-5 pr-3">
                 <section>
                 <div className="mb-3 px-1.5">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
@@ -403,7 +403,7 @@ export function AppShell({
                       <button
                         key={item.label}
                         disabled
-                        className="flex items-center gap-3 rounded-2xl px-3.5 py-3 text-left text-sm font-medium text-slate-400"
+                        className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-left text-sm font-medium text-slate-400"
                       >
                         <span className="text-slate-300">{getNavIcon(item.href)}</span>
                         {item.label}
@@ -414,8 +414,8 @@ export function AppShell({
                         href={item.href}
                         className={
                           item.href === pathname
-                            ? "flex items-center gap-3 rounded-2xl bg-white px-3.5 py-3 text-sm font-medium text-slate-950 shadow-sm ring-1 ring-slate-200"
-                            : "flex items-center gap-3 rounded-2xl px-3.5 py-3 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-950 hover:shadow-sm"
+                            ? "flex items-center gap-3 rounded-lg bg-white px-2.5 py-2 text-sm font-medium text-slate-950 shadow-sm ring-1 ring-slate-200"
+                            : "flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm font-medium text-slate-600 transition hover:bg-white hover:text-slate-950 hover:shadow-sm"
                         }
                       >
                         <span
@@ -462,11 +462,11 @@ export function AppShell({
               className="relative shrink-0 border-t border-slate-200/80 pt-4"
             >
                 {isProfileMenuOpen && (
-                  <div className="absolute bottom-[calc(100%+0.75rem)] left-0 right-0 rounded-[1.8rem] bg-white p-4 shadow-[0_20px_60px_rgba(15,23,42,0.16)] ring-1 ring-slate-200">
+                  <div className="absolute bottom-[calc(100%+0.75rem)] left-0 right-0 rounded-lg bg-white p-3 shadow-lg ring-1 ring-slate-200">
                     {!authEnabled ? (
                       <div className="space-y-3">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-950 text-sm font-semibold text-white">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-950 text-xs font-semibold text-white">
                             AI
                           </div>
                           <div>
@@ -486,13 +486,13 @@ export function AppShell({
                         <div className="flex flex-wrap gap-2">
                           <Link
                             href="/settings?tab=security"
-                            className="inline-flex rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white hover:text-slate-900"
+                            className="inline-flex rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-white hover:text-slate-900"
                           >
                             Open security
                           </Link>
                           <Link
                             href="/settings?tab=users"
-                            className="inline-flex rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                            className="inline-flex rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
                           >
                             Open users
                           </Link>
@@ -501,14 +501,14 @@ export function AppShell({
                     ) : isAuthenticated ? (
                       <div className="space-y-4">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-500 text-sm font-semibold text-white">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500 text-sm font-semibold text-white">
                             {getUserInitials(authStatus?.username)}
                           </div>
                           <div>
-                            <p className="text-base font-semibold text-slate-950">
+                            <p className="text-sm font-semibold text-slate-950">
                               {authStatus?.username}
                             </p>
-                            <p className="mt-1 text-sm text-slate-500">
+                            <p className="mt-1 text-xs text-slate-500">
                               {isAdmin ? "Admin account" : "Viewer account"}
                             </p>
                           </div>
@@ -522,7 +522,7 @@ export function AppShell({
                           {isAdmin && (
                             <Link
                               href="/settings"
-                              className="flex items-center rounded-xl px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
+                              className="flex items-center rounded-lg px-2.5 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
                             >
                               Settings
                             </Link>
@@ -530,7 +530,7 @@ export function AppShell({
                           <button
                             type="button"
                             onClick={() => void handleSignOut()}
-                            className="flex w-full items-center rounded-xl px-3 py-2 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
+                            className="flex w-full items-center rounded-lg px-2.5 py-1.5 text-left text-sm font-medium text-slate-700 transition hover:bg-slate-50 hover:text-slate-950"
                           >
                             Sign out
                           </button>
@@ -539,7 +539,7 @@ export function AppShell({
                     ) : (
                       <div className="space-y-3">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-950 text-sm font-semibold text-white">
+                          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-slate-950 text-xs font-semibold text-white">
                             AI
                           </div>
                           <div>
@@ -557,7 +557,7 @@ export function AppShell({
                           that role.
                         </p>
                         {profileAuthError && (
-                          <div className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
                             {profileAuthError}
                           </div>
                         )}
@@ -569,7 +569,7 @@ export function AppShell({
                               setProfileUsername(event.target.value)
                             }
                             placeholder="Username"
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
                           />
                           <input
                             type="password"
@@ -578,7 +578,7 @@ export function AppShell({
                               setProfilePassword(event.target.value)
                             }
                             placeholder="Password"
-                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
+                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
                           />
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -586,13 +586,13 @@ export function AppShell({
                             type="button"
                             onClick={() => void handleProfileSignIn()}
                             disabled={isProfileSigningIn}
-                            className="inline-flex rounded-xl bg-slate-950 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
+                            className="inline-flex rounded-lg bg-slate-950 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:bg-slate-300"
                           >
                             {isProfileSigningIn ? "Signing in..." : "Sign in"}
                           </button>
                           <Link
                             href={`/login?next=${encodeURIComponent(pathname || "/chat")}`}
-                            className="inline-flex rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
+                            className="inline-flex rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:text-slate-900"
                           >
                             Full login
                           </Link>
@@ -605,7 +605,7 @@ export function AppShell({
                 <button
                   type="button"
                   onClick={() => setIsProfileMenuOpen((current) => !current)}
-                  className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 transition hover:bg-white/70"
+                  className="flex w-full items-center gap-3 rounded-lg px-2 py-2 transition hover:bg-white/70"
                 >
                   <div className="relative shrink-0">
                     <div className="flex h-11 w-11 items-center justify-center rounded-full bg-amber-500 text-sm font-semibold text-white">
