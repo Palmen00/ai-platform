@@ -1542,7 +1542,6 @@ class DocumentService:
             "kinda like",
             "kind of like",
             "looks like",
-            "related to",
             "same",
             "duplicates",
             "duplicate",
