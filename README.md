@@ -120,6 +120,7 @@ Optional OCR support for scanned PDFs and image files:
 - `./scripts/eval/retrieval.ps1 -Suite backend/evals/reply_quality_cases.json -WithReplies`: Run reply-quality checks for natural document and OCR answers
 - `./scripts/eval/retrieval.ps1 -Suite backend/evals/document_coverage_cases.json -WithReplies`: Run broader document coverage checks across the current uploaded-document mix
 - `py -3 scripts/tests/run_upload_ocr_e2e.py --base-url http://<server>:8000`: Run the broad upload/OCR/document-chat end-to-end validation suite
+- `py -3 scripts/tests/run_natural_prompt_pair_suite.py --base-url http://<server>:8000`: Run perfect-vs-human prompt pair checks against the current uploaded documents
 - `./scripts/eval/unstructured-compare.ps1`: Compare the current ingestion pipeline with a local Unstructured prototype
 - `./scripts/eval/gliner-compare.ps1`: Compare the current entity pipeline with a local GLiNER prototype
 - `./scripts/deploy/ubuntu/install.sh`: Run the installer-oriented Ubuntu flow end-to-end

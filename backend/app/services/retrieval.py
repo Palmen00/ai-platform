@@ -432,6 +432,30 @@ class RetrievalService:
         ):
             return None
 
+        if self.document_service.is_recent_document_inventory_query(
+            query
+        ) and self._is_recent_document_summary_query(query):
+            documents = self.document_service.list_uploaded_documents(
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if not documents:
+                return "You have not uploaded any documents yet."
+            latest_document = documents[0]
+            latest_sources = self.document_service.recent_sources_for_document_ids(
+                [latest_document.id],
+                limit=2,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            summary = self._render_document_content_summary(
+                latest_document,
+                latest_sources,
+            )
+            if summary:
+                return f"Your most recently uploaded document is {latest_document.original_name}. {summary}"
+            return f"Your most recently uploaded document is {latest_document.original_name}."
+
         if self.document_service.is_document_inventory_query(query):
             documents = self.document_service.list_uploaded_documents(
                 is_admin=is_admin,
@@ -441,6 +465,9 @@ class RetrievalService:
                 return "You have not uploaded any documents yet."
 
             document_names = [document.original_name for document in documents]
+
+            if self._wants_document_type_inventory(query):
+                return self._summarize_document_inventory_by_type(documents)
 
             if self.document_service.is_recent_document_inventory_query(query):
                 latest_document = documents[0]
@@ -473,14 +500,6 @@ class RetrievalService:
                 " more."
             )
 
-        if self.document_service.is_document_similarity_query(query):
-            return self.document_service.summarize_similar_documents(
-                query=query,
-                history=history,
-                is_admin=is_admin,
-                viewer_username=viewer_username,
-            )
-
         if self.document_service.is_document_version_query(query):
             return self.document_service.summarize_document_versions(
                 query=query,
@@ -494,6 +513,14 @@ class RetrievalService:
             or self.document_service.is_document_conflict_query(query)
         ):
             return self.document_service.summarize_document_changes(
+                query=query,
+                history=history,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
+        if self.document_service.is_document_similarity_query(query):
+            return self.document_service.summarize_similar_documents(
                 query=query,
                 history=history,
                 is_admin=is_admin,
@@ -643,6 +670,13 @@ class RetrievalService:
                 viewer_username=viewer_username,
             )
 
+        return self._render_document_content_summary(document, document_sources)
+
+    def _render_document_content_summary(
+        self,
+        document,
+        document_sources: list[ChatSource],
+    ) -> str:
         details: list[str] = []
         title = (document.document_title or "").strip()
         if self._is_clean_title(title, document.original_name):
@@ -683,6 +717,88 @@ class RetrievalService:
             for sentence in [self._build_document_summary_lead(document, document_sources), *details]
             if sentence
         ).strip()
+
+    def _is_recent_document_summary_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        if not self.document_service.is_recent_document_inventory_query(query):
+            return False
+        summary_markers = (
+            "about",
+            "summarize",
+            "summary",
+            "describe",
+            "explain",
+            "main topic",
+            "handlar",
+            "sammanfatta",
+        )
+        return any(marker in lowered for marker in summary_markers)
+
+    def _wants_document_type_inventory(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        markers = (
+            "by type",
+            "kind of files",
+            "kinds of files",
+            "kinda files",
+            "what kind",
+            "what kinds",
+            "file types",
+            "document types",
+            "types of",
+            "business questions",
+        )
+        return any(marker in lowered for marker in markers)
+
+    def _summarize_document_inventory_by_type(self, documents) -> str:
+        grouped: dict[str, list[str]] = {}
+        for document in documents:
+            label = (
+                document.detected_document_type
+                or document.source_kind
+                or "document"
+            )
+            label = str(label).strip().lower() or "document"
+            grouped.setdefault(label, []).append(document.original_name)
+
+        group_lines = []
+        for label, names in sorted(grouped.items(), key=lambda item: (-len(item[1]), item[0])):
+            preview = ", ".join(names[:3])
+            suffix = "" if len(names) <= 3 else f", and {len(names) - 3} more"
+            group_lines.append(f"{label}: {len(names)} ({preview}{suffix})")
+            if len(group_lines) >= 6:
+                break
+
+        useful_documents = [
+            document.original_name
+            for document in documents
+            if (document.detected_document_type or document.source_kind or "").lower()
+            in {
+                "agreement",
+                "contract",
+                "invoice",
+                "policy",
+                "report",
+                "roadmap",
+                "spreadsheet",
+                "presentation",
+                "word",
+                "pdf",
+            }
+        ][:5]
+        useful_sentence = ""
+        if useful_documents:
+            useful_sentence = (
+                " For business questions, start with "
+                + self._join_phrases(useful_documents)
+                + "."
+            )
+
+        return (
+            f"You currently have {len(documents)} uploaded documents. "
+            f"By type: {'; '.join(group_lines)}."
+            f"{useful_sentence}"
+        )
 
     def _is_generic_document_summary_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())

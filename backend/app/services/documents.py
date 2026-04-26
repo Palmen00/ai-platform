@@ -1301,9 +1301,14 @@ class DocumentService:
         lowered = " ".join(query.lower().split())
         inventory_markers = (
             "what files have i uploaded",
+            "what kind of files have i uploaded",
+            "what kinds of files have i uploaded",
+            "what kinda files have i uploaded",
             "which files have i uploaded",
             "what documents have i uploaded",
             "which documents have i uploaded",
+            "list uploaded files",
+            "list uploaded documents",
             "list my files",
             "list my documents",
             "show my files",
@@ -1317,6 +1322,16 @@ class DocumentService:
 
         if re.search(
             r"\b(?:what|which)\s+(?:files?|documents?)\b.*\b(?:upload|uploaded)\b",
+            lowered,
+        ):
+            return True
+        if re.search(
+            r"\blist\s+(?:the\s+)?uploaded\s+(?:files?|documents?)\b",
+            lowered,
+        ):
+            return True
+        if re.search(
+            r"\bwhat\s+(?:kind|kinds|kinda)\s+of\s+(?:files?|documents?)\b.*\b(?:upload|uploaded)\b",
             lowered,
         ):
             return True
@@ -1343,7 +1358,9 @@ class DocumentService:
             "senast uppladdade",
             "sist uppladdade",
         )
-        return any(marker in lowered for marker in recent_markers)
+        return any(marker in lowered for marker in recent_markers) or bool(
+            re.search(r"\b(?:upload|uploaded)\s+last\b|\blast\s+(?:upload|uploaded)\b", lowered)
+        )
 
     def is_document_metadata_inventory_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
@@ -1556,6 +1573,9 @@ class DocumentService:
             "compare",
             "compare versions",
             "changed between",
+            "same or different",
+            "basically the same",
+            "different",
             "what is different",
             "ändrades",
             "skillnad",

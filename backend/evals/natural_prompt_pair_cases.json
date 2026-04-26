@@ -1,0 +1,97 @@
+{
+  "name": "natural-prompt-pair-cases",
+  "description": "Prompt-pair sheet for testing whether natural human questions reach the same document intent as clear, ideal prompts.",
+  "cases": [
+    {
+      "id": "latest-upload",
+      "selector": "latest_document",
+      "perfect_prompt": "Which document was uploaded most recently? Return the exact file name and a one sentence description if content is available.",
+      "human_prompt": "what did i upload last?",
+      "requires_sources": false,
+      "requires_target_name": true,
+      "min_source_overlap": 0.0
+    },
+    {
+      "id": "latest-document-summary",
+      "selector": "latest_document",
+      "perfect_prompt": "Summarize the most recently uploaded document. Mention the file name and the main topic in a concise answer.",
+      "human_prompt": "what's the latest doc about?",
+      "requires_sources": false,
+      "requires_target_name": false,
+      "min_source_overlap": 0.0
+    },
+    {
+      "id": "specific-document-summary",
+      "selector": "representative_document",
+      "perfect_prompt": "In the document named \"{document_name}\", what is it mainly about? Include concrete details from the document.",
+      "human_prompt": "what is {short_name} about?",
+      "requires_sources": true,
+      "requires_target_name": false,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "document-key-points",
+      "selector": "representative_document",
+      "perfect_prompt": "Read \"{document_name}\" and extract the most important dates, numbers, people, organizations, or codes you can find. Keep it concise.",
+      "human_prompt": "anything important i should notice in {short_name}?",
+      "requires_sources": true,
+      "requires_target_name": false,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "topic-search",
+      "selector": "topic_document",
+      "perfect_prompt": "Find documents related to \"{topic}\" and explain briefly what the relevant document says.",
+      "human_prompt": "do we have anything about {topic}?",
+      "requires_sources": true,
+      "requires_target_name": false,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "similar-documents",
+      "selector": "similar_document",
+      "perfect_prompt": "Find documents that are most similar to \"{document_name}\". Explain why they are similar.",
+      "human_prompt": "got anything kinda like {short_name}?",
+      "requires_sources": false,
+      "requires_target_name": false,
+      "min_source_overlap": 0.0
+    },
+    {
+      "id": "compare-two-documents",
+      "selector": "document_pair",
+      "perfect_prompt": "Compare \"{document_name}\" with \"{other_document_name}\". Tell me what is similar and what is different.",
+      "human_prompt": "are {short_name} and {other_short_name} basically the same or different?",
+      "requires_sources": false,
+      "requires_target_name": false,
+      "min_source_overlap": 0.0
+    },
+    {
+      "id": "document-inventory",
+      "selector": "inventory",
+      "perfect_prompt": "List the uploaded documents by type and mention which ones look most useful for business questions.",
+      "human_prompt": "what kinda files have i uploaded?",
+      "requires_sources": false,
+      "requires_target_name": false,
+      "min_source_overlap": 0.0
+    },
+    {
+      "id": "business-style-summary",
+      "selector": "representative_document",
+      "perfect_prompt": "Prepare a business-friendly summary of \"{document_name}\" with purpose, key facts, and possible follow-up questions.",
+      "human_prompt": "can you give me the useful business summary of {short_name}?",
+      "requires_sources": true,
+      "requires_target_name": false,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "follow-up-context",
+      "selector": "representative_document",
+      "perfect_prompt": "First identify \"{document_name}\", then explain what that document is about.",
+      "human_prompt": "and what was that one about?",
+      "setup_prompt": "Find the document named \"{document_name}\".",
+      "requires_sources": true,
+      "requires_target_name": false,
+      "min_source_overlap": 0.5
+    }
+  ]
+}

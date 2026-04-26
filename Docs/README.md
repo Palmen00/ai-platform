@@ -21,9 +21,10 @@ This folder now uses Markdown as the primary documentation format.
 15. [UI Style Guide](./ui-style-guide.md)
 16. [Security Pentest Report v2](./security-pentest-report-v2-2026-04-06.md)
 17. [Upload And OCR E2E](./upload-ocr-e2e-2026-04-07.md)
-18. [SharePoint Mock Smoke](./sharepoint-mock-smoke-2026-04-07.md)
-19. [Roadmap](./roadmap.md)
-20. [Latest Session Handoff](./session-handoff-2026-04-05.md)
+18. [Natural Prompt Pair Testing](./natural-prompt-pair-testing.md)
+19. [SharePoint Mock Smoke](./sharepoint-mock-smoke-2026-04-07.md)
+20. [Roadmap](./roadmap.md)
+21. [Latest Session Handoff](./session-handoff-2026-04-05.md)
 
 ## Notes
 
