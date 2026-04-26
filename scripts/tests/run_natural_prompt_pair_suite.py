@@ -26,6 +26,8 @@ FALLBACK_PHRASES = (
     "i don't have enough context",
     "i don't have any information",
     "i do not have any information",
+    "i'm not aware of any specific",
+    "i am not aware of any specific",
     "not in the current context",
     "cannot tell",
     "can't tell",
@@ -34,6 +36,7 @@ FALLBACK_PHRASES = (
     "no documents",
     "as an ai",
     "provided for reference. however",
+    "there is no mention of a document similar",
     "unfortunately, no specific",
 )
 
