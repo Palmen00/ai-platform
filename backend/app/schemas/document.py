@@ -9,6 +9,28 @@ class DocumentSignal(BaseModel):
     source: str | None = None
 
 
+class DocumentCommercialLineItem(BaseModel):
+    description: str
+    quantity: float | None = None
+    unit_price: float | None = None
+    total: float | None = None
+    currency: str | None = None
+    sku: str | None = None
+    source_line: str | None = None
+    confidence: float = 0.0
+
+
+class DocumentCommercialSummary(BaseModel):
+    invoice_number: str | None = None
+    invoice_date: str | None = None
+    due_date: str | None = None
+    subtotal: float | None = None
+    tax: float | None = None
+    total: float | None = None
+    currency: str | None = None
+    line_items: list[DocumentCommercialLineItem] = Field(default_factory=list)
+
+
 class DocumentSimilarityMatch(BaseModel):
     document_id: str
     document_name: str
@@ -101,6 +123,7 @@ class DocumentRecord(BaseModel):
     document_version_number: int | None = None
     document_topics: list[str] = Field(default_factory=list)
     document_summary_anchor: str | None = None
+    commercial_summary: DocumentCommercialSummary | None = None
     similarity_profile: str | None = None
     similarity_terms: list[str] = Field(default_factory=list)
     similar_documents: list[DocumentSimilarityMatch] = Field(default_factory=list)

@@ -13,6 +13,8 @@ from difflib import SequenceMatcher
 from fastapi import UploadFile
 
 from app.config import settings
+from app.schemas.document import DocumentCommercialLineItem
+from app.schemas.document import DocumentCommercialSummary
 from app.schemas.document import DocumentRecord
 from app.schemas.document import DocumentFacetOption
 from app.schemas.document import DocumentFamilyMember
@@ -925,6 +927,11 @@ class DocumentService:
                 document.original_name,
                 document.detected_document_type,
             )
+            document.commercial_summary = self.processing_service.extract_commercial_summary(
+                extracted_text,
+                document.original_name,
+                document.detected_document_type,
+            )
             document.document_family_key = self._derive_document_family_key(document)
             document.document_family_label = self._derive_document_family_label(document)
             (
@@ -1018,6 +1025,7 @@ class DocumentService:
             document.document_version_number = None
             document.document_topics = []
             document.document_summary_anchor = None
+            document.commercial_summary = None
             document.similarity_profile = None
             document.similarity_terms = []
             document.similar_documents = []
@@ -1819,6 +1827,27 @@ class DocumentService:
             "items",
             "order",
             "ordered",
+            "buy",
+            "bought",
+            "purchase",
+            "purchased",
+            "cost",
+            "costs",
+            "price",
+            "prices",
+            "amount",
+            "amounts",
+            "invoice date",
+            "due date",
+            "bestallt",
+            "beställd",
+            "bestalld",
+            "beställda",
+            "bestallda",
+            "köpt",
+            "kopt",
+            "kostnad",
+            "kostnader",
             "line item",
             "did i order",
         )
@@ -3608,6 +3637,9 @@ class DocumentService:
                 temp_path.unlink()
 
     def _normalize_document_record(self, document: DocumentRecord) -> DocumentRecord:
+        document.commercial_summary = self._coerce_commercial_summary(
+            document.commercial_summary
+        )
         if document.processing_status == "failed":
             document.document_signals = self._coerce_document_signals(document.document_signals)
             document.similar_documents = self._coerce_document_similarity_matches(
@@ -3797,6 +3829,22 @@ class DocumentService:
                 document.document_date_kind = detected_date_kind
                 changed = True
 
+        if extracted_text and (
+            document.commercial_summary is None
+            or (
+                document.detected_document_type in {"invoice", "receipt", "quote"}
+                and not document.commercial_summary.line_items
+            )
+        ):
+            commercial_summary = self.processing_service.extract_commercial_summary(
+                extracted_text,
+                document.original_name,
+                document.detected_document_type,
+            )
+            if commercial_summary != document.commercial_summary:
+                document.commercial_summary = commercial_summary
+                changed = True
+
         if extracted_text:
             family_key = self._derive_document_family_key(document)
             family_label = self._derive_document_family_label(document)
@@ -3907,6 +3955,49 @@ class DocumentService:
                 continue
 
         return coerced
+
+    def _coerce_commercial_summary(
+        self,
+        value: DocumentCommercialSummary | dict[str, object] | None,
+    ) -> DocumentCommercialSummary | None:
+        if value is None:
+            return None
+        try:
+            summary = (
+                value
+                if isinstance(value, DocumentCommercialSummary)
+                else DocumentCommercialSummary.model_validate(value)
+            )
+        except Exception:
+            return None
+
+        line_items: list[DocumentCommercialLineItem] = []
+        for item in summary.line_items:
+            try:
+                line_item = (
+                    item
+                    if isinstance(item, DocumentCommercialLineItem)
+                    else DocumentCommercialLineItem.model_validate(item)
+                )
+            except Exception:
+                continue
+            if line_item.description.strip():
+                line_items.append(line_item)
+
+        summary.line_items = line_items[:30]
+        if not any(
+            (
+                summary.invoice_number,
+                summary.invoice_date,
+                summary.due_date,
+                summary.subtotal is not None,
+                summary.tax is not None,
+                summary.total is not None,
+                summary.line_items,
+            )
+        ):
+            return None
+        return summary
 
     def _coerce_document_similarity_matches(
         self,
@@ -4617,6 +4708,13 @@ class DocumentService:
         return alpha_ratio >= 0.72
 
     def _extract_document_product_evidence(self, document: DocumentRecord) -> list[str]:
+        commercial_summary = self._coerce_commercial_summary(document.commercial_summary)
+        if commercial_summary and commercial_summary.line_items:
+            return [
+                self._format_commercial_line_item(item, commercial_summary.currency)
+                for item in commercial_summary.line_items[:6]
+            ]
+
         extracted_text = self._normalize_text_fragment(self.get_extracted_text(document.id))
         if not extracted_text:
             return []
@@ -4650,13 +4748,78 @@ class DocumentService:
 
         return evidences[:4]
 
+    def _format_commercial_line_item(
+        self,
+        item: DocumentCommercialLineItem,
+        fallback_currency: str | None = None,
+    ) -> str:
+        details: list[str] = []
+        if item.quantity is not None:
+            details.append(f"qty {self._format_commercial_number(item.quantity)}")
+        if item.unit_price is not None:
+            details.append(
+                "unit "
+                + self._format_commercial_money(
+                    item.unit_price,
+                    item.currency or fallback_currency,
+                )
+            )
+        if item.total is not None:
+            details.append(
+                "total "
+                + self._format_commercial_money(
+                    item.total,
+                    item.currency or fallback_currency,
+                )
+            )
+        if not details:
+            return item.description
+        return f"{item.description} ({', '.join(details)})"
+
+    def _format_commercial_money(
+        self,
+        value: float,
+        currency: str | None = None,
+    ) -> str:
+        formatted = self._format_commercial_number(value)
+        return f"{formatted} {currency}" if currency else formatted
+
+    def _format_commercial_number(self, value: float) -> str:
+        if float(value).is_integer():
+            return str(int(value))
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    def _format_commercial_summary_suffix(
+        self,
+        summary: DocumentCommercialSummary | None,
+    ) -> str:
+        if not summary:
+            return ""
+        details: list[str] = []
+        if summary.invoice_number:
+            details.append(f"invoice {summary.invoice_number}")
+        if summary.invoice_date:
+            details.append(f"invoice date {summary.invoice_date}")
+        if summary.due_date:
+            details.append(f"due {summary.due_date}")
+        if summary.total is not None:
+            details.append(
+                "total "
+                + self._format_commercial_money(summary.total, summary.currency)
+            )
+        return f" ({', '.join(details)})" if details else ""
+
     def _summarize_products_for_documents(
         self,
         documents: list[DocumentRecord],
     ) -> str:
         product_map: list[tuple[DocumentRecord, list[str]]] = []
+        commercial_summaries: list[tuple[DocumentRecord, DocumentCommercialSummary]] = []
         empty_documents: list[DocumentRecord] = []
         for document in documents:
+            commercial_summary = self._coerce_commercial_summary(document.commercial_summary)
+            if commercial_summary:
+                commercial_summaries.append((document, commercial_summary))
             evidences = self._extract_document_product_evidence(document)
             if evidences:
                 product_map.append((document, evidences))
@@ -4664,6 +4827,22 @@ class DocumentService:
                 empty_documents.append(document)
 
         if not product_map:
+            if commercial_summaries:
+                if len(commercial_summaries) == 1:
+                    document, summary = commercial_summaries[0]
+                    suffix = self._format_commercial_summary_suffix(summary)
+                    return (
+                        f"I found invoice-style details in {document.original_name}{suffix}, "
+                        "but I could not find a clear product line list in the extracted text."
+                    )
+                leading_details = "; ".join(
+                    f"{document.original_name}{self._format_commercial_summary_suffix(summary)}"
+                    for document, summary in commercial_summaries[:4]
+                )
+                return (
+                    f"I found invoice-style details in {len(commercial_summaries)} documents: "
+                    f"{leading_details}. I could not find clear product line lists in those extracted texts."
+                )
             if len(documents) == 1:
                 return (
                     f"I could not find a clear product list in {documents[0].original_name}. "
@@ -4676,13 +4855,20 @@ class DocumentService:
         if len(documents) == 1:
             document, evidences = product_map[0]
             lead = self._join_phrases(evidences[:3])
+            summary = self._coerce_commercial_summary(document.commercial_summary)
+            suffix = self._format_commercial_summary_suffix(summary)
+            if summary and len(summary.line_items) > 1:
+                return (
+                    f"The ordered items I found in {document.original_name}{suffix} are: "
+                    f"{lead}."
+                )
             return (
-                f"The clearest ordered item in {document.original_name} is {lead}. "
+                f"The clearest ordered item in {document.original_name}{suffix} is {lead}. "
                 "I do not see a more detailed product list in the extracted text."
             )
 
         leading_details = "; ".join(
-            f"{document.original_name}: {self._join_phrases(evidences[:2])}"
+            f"{document.original_name}{self._format_commercial_summary_suffix(self._coerce_commercial_summary(document.commercial_summary))}: {self._join_phrases(evidences[:2])}"
             for document, evidences in product_map[:3]
         )
         response = (
@@ -5768,6 +5954,12 @@ class DocumentService:
             )
         if document.document_topics:
             parts.append("topics: " + ", ".join(document.document_topics[:6]))
+        if document.commercial_summary:
+            commercial_parts = self._commercial_summary_profile_parts(
+                document.commercial_summary
+            )
+            if commercial_parts:
+                parts.append("commercial: " + "; ".join(commercial_parts))
 
         top_signals = [
             signal.value
@@ -5789,6 +5981,31 @@ class DocumentService:
             parts.append("sample: " + self._normalize_text_fragment(sample[:1200]))
 
         return "\n".join(parts)
+
+    def _commercial_summary_profile_parts(
+        self,
+        summary: DocumentCommercialSummary,
+    ) -> list[str]:
+        parts: list[str] = []
+        if summary.invoice_number:
+            parts.append(f"invoice number {summary.invoice_number}")
+        if summary.invoice_date:
+            parts.append(f"invoice date {summary.invoice_date}")
+        if summary.due_date:
+            parts.append(f"due date {summary.due_date}")
+        if summary.total is not None:
+            parts.append(
+                f"total {self._format_commercial_money(summary.total, summary.currency)}"
+            )
+        if summary.line_items:
+            item_descriptions = [
+                item.description
+                for item in summary.line_items[:6]
+                if item.description
+            ]
+            if item_descriptions:
+                parts.append("items " + ", ".join(item_descriptions))
+        return parts
 
     def _build_similarity_terms(
         self,

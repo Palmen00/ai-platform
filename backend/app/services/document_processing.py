@@ -14,6 +14,8 @@ import subprocess
 from pypdf import PdfReader
 
 from app.config import settings
+from app.schemas.document import DocumentCommercialLineItem
+from app.schemas.document import DocumentCommercialSummary
 from app.schemas.document import DocumentSignal
 from app.services.gliner_service import GLiNEREntityService
 from app.services.unstructured_service import UnstructuredPartitionService
@@ -621,6 +623,470 @@ class DocumentProcessingService:
             reverse=True,
         )
         return ranked_signals[:32]
+
+    def extract_commercial_summary(
+        self,
+        text: str,
+        document_name: str,
+        document_type: str | None = None,
+    ) -> DocumentCommercialSummary | None:
+        normalized_text = self._normalize_extracted_text(text)
+        if not normalized_text.strip():
+            return None
+
+        lowered = f"{document_name}\n{normalized_text[:8000]}".lower()
+        commercial_markers = (
+            "invoice",
+            "faktura",
+            "receipt",
+            "quote",
+            "quotation",
+            "amount",
+            "subtotal",
+            "total",
+            "vat",
+            "tax",
+            "qty",
+            "quantity",
+            "unit price",
+            "description",
+        )
+        if document_type not in {"invoice", "receipt", "quote"} and not any(
+            marker in lowered for marker in commercial_markers
+        ):
+            return None
+
+        invoice_number = self._extract_invoice_number(normalized_text, document_name)
+        invoice_date, due_date = self._extract_commercial_dates(normalized_text, document_name)
+        amounts = self._extract_commercial_amounts(normalized_text)
+        line_items = self._extract_commercial_line_items(normalized_text)
+        currency = (
+            amounts.get("currency")
+            or self._most_common_line_item_currency(line_items)
+            or self._detect_currency(normalized_text)
+        )
+
+        if not any(
+            (
+                invoice_number,
+                invoice_date,
+                due_date,
+                amounts.get("subtotal") is not None,
+                amounts.get("tax") is not None,
+                amounts.get("total") is not None,
+                line_items,
+            )
+        ):
+            return None
+
+        return DocumentCommercialSummary(
+            invoice_number=invoice_number,
+            invoice_date=invoice_date,
+            due_date=due_date,
+            subtotal=amounts.get("subtotal"),
+            tax=amounts.get("tax"),
+            total=amounts.get("total"),
+            currency=currency,
+            line_items=line_items[:30],
+        )
+
+    def _extract_invoice_number(self, text: str, document_name: str) -> str | None:
+        patterns = (
+            r"(?im)\b(?:invoice|faktura)\s*(?:no\.?|number|nr|nummer|#)?\s*[:#-]\s*([A-Z0-9][A-Z0-9._/-]{2,40})\b",
+            r"(?im)\b(?:inv|fakt)\s*[:#-]\s*([A-Z0-9][A-Z0-9._/-]{2,40})\b",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                return match.group(1).strip(" .,:;")
+
+        filename_match = re.search(
+            r"\b(?:inv|invoice|faktura)[_-]?([A-Z0-9][A-Z0-9._-]{2,30})\b",
+            document_name,
+            flags=re.IGNORECASE,
+        )
+        if filename_match:
+            return filename_match.group(1).strip(" .,:;")
+        return None
+
+    def _extract_commercial_dates(
+        self,
+        text: str,
+        document_name: str,
+    ) -> tuple[str | None, str | None]:
+        invoice_date: str | None = None
+        due_date: str | None = None
+        candidates = self._extract_date_candidates(text, document_name)
+        for candidate in sorted(candidates, key=lambda item: int(item.get("position", 0))):
+            kind = str(candidate.get("kind") or "")
+            value = str(candidate.get("date") or "")
+            if kind in {"invoice_date", "issue_date"} and not invoice_date:
+                invoice_date = value
+            elif kind == "due_date" and not due_date:
+                due_date = value
+        return invoice_date, due_date
+
+    def _extract_commercial_amounts(self, text: str) -> dict[str, float | str | None]:
+        values: dict[str, float | str | None] = {
+            "subtotal": None,
+            "tax": None,
+            "total": None,
+            "currency": None,
+        }
+        patterns = (
+            ("total", r"(?im)^\s*(?:grand\s+total|amount\s+due|balance\s+due|total)\s*[:\-]?\s*(.+)$"),
+            ("subtotal", r"(?im)^\s*(?:subtotal|sub\s+total|net\s+amount)\s*[:\-]?\s*(.+)$"),
+            ("tax", r"(?im)^\s*(?:vat|moms|tax)\s*[:\-]?\s*(.+)$"),
+        )
+        for key, pattern in patterns:
+            for match in re.finditer(pattern, text):
+                fragment = match.group(1)
+                money = self._last_money_in_text(fragment)
+                if not money:
+                    continue
+                amount, currency = money
+                if amount is not None:
+                    values[key] = amount
+                    if currency and not values["currency"]:
+                        values["currency"] = currency
+                    break
+        return values
+
+    def _extract_commercial_line_items(self, text: str) -> list[DocumentCommercialLineItem]:
+        lines = [
+            " ".join(line.split()).strip()
+            for line in self._normalize_extracted_text(text).splitlines()
+            if " ".join(line.split()).strip()
+        ]
+        line_items: list[DocumentCommercialLineItem] = []
+        in_table = False
+        table_rows_seen = 0
+
+        for line in lines[:600]:
+            lowered = line.lower()
+            keyed_item = self._parse_keyed_line_item(line)
+            if keyed_item:
+                line_items.append(keyed_item)
+                continue
+            if self._looks_like_line_item_header(lowered):
+                in_table = True
+                table_rows_seen = 0
+                continue
+            if in_table and self._looks_like_line_item_table_end(lowered):
+                in_table = False
+            if in_table or self._looks_like_product_amount_line(line):
+                parsed_item = self._parse_tabular_line_item(line, in_table=in_table)
+                if parsed_item:
+                    line_items.append(parsed_item)
+                    table_rows_seen += 1
+                    continue
+            if in_table:
+                table_rows_seen += 1
+                if table_rows_seen > 40:
+                    in_table = False
+
+        return self._dedupe_commercial_line_items(line_items)
+
+    def _looks_like_line_item_header(self, lowered: str) -> bool:
+        has_description = any(
+            marker in lowered
+            for marker in (
+                "description",
+                "product",
+                "products",
+                "item",
+                "service",
+                "article",
+                "artikel",
+                "benamning",
+            )
+        )
+        has_amount = any(
+            marker in lowered
+            for marker in (
+                "qty",
+                "quantity",
+                "antal",
+                "unit price",
+                "price",
+                "amount",
+                "total",
+                "sum",
+            )
+        )
+        return has_description and has_amount
+
+    def _looks_like_line_item_table_end(self, lowered: str) -> bool:
+        return bool(
+            re.match(
+                r"^(?:subtotal|sub total|total|grand total|vat|moms|tax|amount due|balance due|payment|terms)\b",
+                lowered,
+            )
+        )
+
+    def _looks_like_product_amount_line(self, line: str) -> bool:
+        lowered = line.lower()
+        if self._looks_like_line_item_table_end(lowered):
+            return False
+        if not re.search(r"[A-Za-zÅÄÖåäö]{3,}", line):
+            return False
+        money_count = len(self._money_matches(line))
+        if money_count >= 2:
+            return True
+        return money_count >= 1 and any(
+            marker in lowered
+            for marker in ("product", "item", "service", "subscription", "license", "fee")
+        )
+
+    def _parse_keyed_line_item(self, line: str) -> DocumentCommercialLineItem | None:
+        description_match = re.search(
+            r"(?i)\b(?:product|item|description|service)\s*[:\-]\s*([A-Za-zÅÄÖåäö][A-Za-zÅÄÖåäö0-9 /(),._-]{2,100})",
+            line,
+        )
+        if not description_match:
+            return None
+
+        description = self._clean_line_item_description(description_match.group(1))
+        quantity = self._extract_labeled_number(line, ("qty", "quantity", "antal"))
+        unit_price = self._extract_labeled_money(line, ("unit price", "price", "unit"))
+        total = self._extract_labeled_money(line, ("total", "amount", "sum"))
+        currency = self._detect_currency(line)
+        if not description:
+            return None
+        return DocumentCommercialLineItem(
+            description=description,
+            quantity=quantity,
+            unit_price=unit_price,
+            total=total,
+            currency=currency,
+            source_line=line,
+            confidence=0.92,
+        )
+
+    def _parse_tabular_line_item(
+        self,
+        line: str,
+        *,
+        in_table: bool,
+    ) -> DocumentCommercialLineItem | None:
+        if self._is_line_item_noise(line):
+            return None
+
+        money_matches = self._money_matches(line)
+        if not money_matches:
+            return None
+
+        amount_values = [
+            (match.start(), match.end(), self._parse_money_value(match.group(0)))
+            for match in money_matches
+        ]
+        amount_values = [
+            (start, end, amount, currency)
+            for start, end, (amount, currency) in amount_values
+            if amount is not None
+        ]
+        if not amount_values:
+            return None
+
+        last_start, last_end, total, total_currency = amount_values[-1]
+        unit_price = amount_values[-2][2] if len(amount_values) >= 2 else None
+        currency = total_currency or (
+            amount_values[-2][3] if len(amount_values) >= 2 else None
+        )
+
+        prefix = line[:last_start].strip(" |,;\t")
+        if len(amount_values) >= 2:
+            prefix = line[: amount_values[-2][0]].strip(" |,;\t")
+
+        quantity = self._extract_trailing_quantity(prefix)
+        description = prefix
+        if quantity is not None:
+            description = re.sub(
+                r"(?<![A-Za-z])\d+(?:[.,]\d+)?\s*$",
+                "",
+                description,
+            ).strip(" |,;\t")
+
+        description = self._clean_line_item_description(description)
+        if not description:
+            return None
+        if not in_table and len(description.split()) < 2 and len(description) < 8:
+            return None
+
+        sku_match = re.search(r"\b(?:sku|art(?:icle)?|item\s*no)\s*[:#-]?\s*([A-Z0-9._/-]{3,30})", line, flags=re.IGNORECASE)
+        sku = sku_match.group(1).strip(" .,:;") if sku_match else None
+        confidence = 0.86 if in_table else 0.68
+        if quantity is not None:
+            confidence += 0.04
+        if len(amount_values) >= 2:
+            confidence += 0.04
+
+        return DocumentCommercialLineItem(
+            description=description,
+            quantity=quantity,
+            unit_price=unit_price,
+            total=total,
+            currency=currency,
+            sku=sku,
+            source_line=line,
+            confidence=round(min(confidence, 0.96), 4),
+        )
+
+    def _money_matches(self, text: str) -> list[re.Match[str]]:
+        money_pattern = (
+            r"(?<![A-Za-z0-9])"
+            r"(?:SEK|USD|EUR|GBP|DKK|NOK|kr|\$|€|£)?\s*"
+            r"-?\d+(?:,\d{3})*(?:[.,]\d{2})?"
+            r"|(?<![A-Za-z0-9])-?\d+(?:[.,]\d{2})\s*(?:SEK|USD|EUR|GBP|DKK|NOK|kr|\$|€|£)?"
+        )
+        return list(re.finditer(money_pattern, text, flags=re.IGNORECASE))
+
+    def _last_money_in_text(self, text: str) -> tuple[float | None, str | None] | None:
+        matches = self._money_matches(text)
+        for match in reversed(matches):
+            amount, currency = self._parse_money_value(match.group(0))
+            if amount is not None:
+                return amount, currency
+        return None
+
+    def _parse_money_value(self, raw_value: str) -> tuple[float | None, str | None]:
+        currency = self._normalize_currency(raw_value)
+        numeric = re.sub(r"(?i)\b(?:SEK|USD|EUR|GBP|DKK|NOK|kr)\b|[$€£]", "", raw_value)
+        numeric = numeric.strip()
+        if not numeric:
+            return None, currency
+        if "," in numeric and "." in numeric:
+            if numeric.rfind(",") > numeric.rfind("."):
+                numeric = numeric.replace(".", "").replace(",", ".")
+            else:
+                numeric = numeric.replace(",", "")
+        elif "," in numeric:
+            integer, _, decimals = numeric.rpartition(",")
+            numeric = numeric.replace(",", ".") if len(decimals) in {1, 2} else numeric.replace(",", "")
+        numeric = numeric.replace(" ", "")
+        try:
+            return float(numeric), currency
+        except ValueError:
+            return None, currency
+
+    def _normalize_currency(self, value: str) -> str | None:
+        lowered = value.lower()
+        if "$" in value or "usd" in lowered:
+            return "USD"
+        if "€" in value or "eur" in lowered:
+            return "EUR"
+        if "£" in value or "gbp" in lowered:
+            return "GBP"
+        if "dkk" in lowered:
+            return "DKK"
+        if "nok" in lowered:
+            return "NOK"
+        if "sek" in lowered or re.search(r"\bkr\b", lowered):
+            return "SEK"
+        return None
+
+    def _detect_currency(self, text: str) -> str | None:
+        direct_currency = self._normalize_currency(text)
+        if direct_currency:
+            return direct_currency
+        currencies = [
+            currency
+            for currency in (
+                self._normalize_currency(match.group(0))
+                for match in self._money_matches(text[:20000])
+            )
+            if currency
+        ]
+        if not currencies:
+            return None
+        return Counter(currencies).most_common(1)[0][0]
+
+    def _most_common_line_item_currency(
+        self,
+        line_items: list[DocumentCommercialLineItem],
+    ) -> str | None:
+        currencies = [item.currency for item in line_items if item.currency]
+        if not currencies:
+            return None
+        return Counter(currencies).most_common(1)[0][0]
+
+    def _extract_labeled_number(
+        self,
+        text: str,
+        labels: tuple[str, ...],
+    ) -> float | None:
+        label_pattern = "|".join(re.escape(label) for label in labels)
+        match = re.search(rf"(?i)\b(?:{label_pattern})\b\s*[:\-]?\s*(\d+(?:[.,]\d+)?)", text)
+        if not match:
+            return None
+        amount, _currency = self._parse_money_value(match.group(1))
+        return amount
+
+    def _extract_labeled_money(
+        self,
+        text: str,
+        labels: tuple[str, ...],
+    ) -> float | None:
+        label_pattern = "|".join(re.escape(label) for label in labels)
+        match = re.search(
+            rf"(?i)\b(?:{label_pattern})\b\s*[:\-]?\s*((?:SEK|USD|EUR|GBP|DKK|NOK|kr|\$|€|£)?\s*\d+(?:[.,]\d+)?)",
+            text,
+        )
+        if not match:
+            return None
+        amount, _currency = self._parse_money_value(match.group(1))
+        return amount
+
+    def _extract_trailing_quantity(self, text: str) -> float | None:
+        match = re.search(r"(?<![A-Za-z])(\d+(?:[.,]\d+)?)\s*$", text)
+        if not match:
+            return None
+        amount, _currency = self._parse_money_value(match.group(1))
+        if amount is None or amount > 100000:
+            return None
+        return amount
+
+    def _clean_line_item_description(self, value: str) -> str:
+        cleaned = re.sub(r"\s+", " ", value).strip(" .,:;|-")
+        cleaned = re.sub(
+            r"(?i)\b(?:qty|quantity|antal|unit price|price|amount|total|sum)\b.*$",
+            "",
+            cleaned,
+        ).strip(" .,:;|-")
+        cleaned = re.sub(r"(?i)^(?:sku|art(?:icle)?|item\s*no)\s*[:#-]?\s*[A-Z0-9._/-]+\s+", "", cleaned)
+        if len(cleaned) > 120:
+            cleaned = cleaned[:117].rstrip() + "..."
+        if not re.search(r"[A-Za-zÅÄÖåäö]{3,}", cleaned):
+            return ""
+        return cleaned
+
+    def _is_line_item_noise(self, line: str) -> bool:
+        lowered = line.lower()
+        if self._looks_like_line_item_table_end(lowered):
+            return True
+        if re.search(
+            r"\b(?:invoice|faktura|date|due|subtotal|vat|moms|tax|payment|bank|iban|bic|swift|address|phone|email|page)\b",
+            lowered,
+        ):
+            return True
+        return len(line) < 6
+
+    def _dedupe_commercial_line_items(
+        self,
+        line_items: list[DocumentCommercialLineItem],
+    ) -> list[DocumentCommercialLineItem]:
+        deduped: list[DocumentCommercialLineItem] = []
+        seen: set[tuple[str, float | None, float | None]] = set()
+        for item in line_items:
+            normalized_description = self._signal_key(item.description)
+            if not normalized_description:
+                continue
+            key = (normalized_description, item.quantity, item.total)
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+        return deduped[:30]
 
     def segment_sections(
         self,

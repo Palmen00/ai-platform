@@ -20,6 +20,7 @@
 - Automatic document-type detection such as invoice, contract, insurance, roadmap, architecture, and form-style documents
 - Automatic document-date detection so knowledge files can be searched, filtered, and sorted by document date instead of upload date alone
 - Automatic company/entity detection for documents such as invoices so questions like supplier-specific invoice searches can be answered from metadata
+- Automatic invoice/order detail extraction for product or service lines, quantities, prices, totals, invoice numbers, invoice dates, and due dates when the extracted text exposes those fields
 - Weighted document signal extraction for names, entities, titles, sections, and recurring terms
 - Embeddings plus Qdrant indexing
 - Reprocess and retry indexing actions
