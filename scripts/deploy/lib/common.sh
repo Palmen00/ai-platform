@@ -117,6 +117,19 @@ print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("utf-8"))
 PY
 }
 
+derive_compose_project_name() {
+  local seed="${1:-${repo_root}}"
+  local digest
+
+  if command -v sha1sum >/dev/null 2>&1; then
+    digest="$(printf '%s' "${seed}" | sha1sum | awk '{print substr($1, 1, 8)}')"
+  else
+    digest="$(printf '%s' "${seed}" | cksum | awk '{print $1}')"
+  fi
+
+  printf 'local-ai-os-%s' "${digest}"
+}
+
 hash_admin_password() {
   local password="$1"
   ADMIN_PASSWORD_INPUT="${password}" python3 - <<'PY'
@@ -142,9 +155,15 @@ PY
 }
 
 run_deploy_compose() {
+  load_deploy_env
+  # Existing installs created before COMPOSE_PROJECT_NAME used Compose's
+  # directory fallback ("infra"). Keep that fallback so updates still target
+  # the original stack, while new configured installs get a unique name.
+  local compose_project_name="${COMPOSE_PROJECT_NAME:-infra}"
+
   (
     cd "${repo_root}/infra"
-    docker compose --env-file "${deploy_env_file}" -f "${deploy_compose_file}" "$@"
+    docker compose --env-file "${deploy_env_file}" -p "${compose_project_name}" -f "${deploy_compose_file}" "$@"
   )
 }
 

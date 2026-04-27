@@ -668,9 +668,11 @@ ADMIN_PASSWORD_HASH_ENV="$(escape_compose_env_value "${ADMIN_PASSWORD_HASH}")"
 ADMIN_PASSWORD_HASH_B64="$(base64_env_value "${ADMIN_PASSWORD_HASH}")"
 ADMIN_SESSION_SECRET_ENV="$(escape_compose_env_value "${ADMIN_SESSION_SECRET}")"
 APP_SECRETS_KEY_ENV="$(escape_compose_env_value "${APP_SECRETS_KEY}")"
+COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$(derive_compose_project_name "${repo_root}")}"
 
 umask 077
 cat >"${deploy_env_file}" <<EOF
+COMPOSE_PROJECT_NAME=${COMPOSE_PROJECT_NAME}
 APP_ENV=prod
 APP_NAME=Local AI OS
 APP_TIMEZONE=Europe/Stockholm
