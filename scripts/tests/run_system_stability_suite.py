@@ -179,6 +179,11 @@ def main() -> int:
     parser.add_argument("--password", default="password")
     parser.add_argument("--server-label", default="ai@192.168.1.105")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--include-connector-tests",
+        action="store_true",
+        help="Also require configured SharePoint/Google connector data and browse checks.",
+    )
     args = parser.parse_args()
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -263,7 +268,15 @@ def main() -> int:
         ) or _find_document(documents, provider="sharepoint", origin="connector")
         google_drive_document = _find_document(documents, provider="google_drive", origin="connector")
 
-        if sharepoint_document:
+        if not args.include_connector_tests:
+            checks.append(
+                CheckResult(
+                    "optional_connector_tests",
+                    True,
+                    "Skipped SharePoint/Google connector checks; pass --include-connector-tests when credentials and synced connector documents are configured.",
+                )
+            )
+        elif sharepoint_document:
             preview = _request_json(
                 session,
                 "GET",
@@ -300,10 +313,10 @@ def main() -> int:
                     {"document_id": sharepoint_document["id"], "reply": reply},
                 )
             )
-        else:
+        elif args.include_connector_tests:
             checks.append(CheckResult("sharepoint_document_present", False, "No indexed SharePoint connector document was found."))
 
-        if google_drive_document:
+        if args.include_connector_tests and google_drive_document:
             preview = _request_json(
                 session,
                 "GET",
@@ -340,34 +353,35 @@ def main() -> int:
                     {"document_id": google_drive_document["id"]},
                 )
             )
-        else:
+        elif args.include_connector_tests:
             checks.append(CheckResult("google_drive_document_present", False, "No indexed Google Drive connector document was found."))
 
-        sharepoint_script = _run_script(
-            [
-                sys.executable,
-                str(ROOT / "scripts" / "tests" / "run_sharepoint_mock_smoke.py"),
-                "--base-url",
-                args.base_url,
-                "--username",
-                args.username,
-                "--password",
-                args.password,
-            ],
-            ROOT,
-        )
-        checks.append(
-            CheckResult(
-                "sharepoint_mock_smoke",
-                sharepoint_script.returncode == 0,
-                "SharePoint mock smoke script passed." if sharepoint_script.returncode == 0 else sharepoint_script.stdout[-800:],
-                {
-                    "returncode": sharepoint_script.returncode,
-                    "stdout_tail": sharepoint_script.stdout[-1200:],
-                    "stderr_tail": sharepoint_script.stderr[-1200:],
-                },
+        if args.include_connector_tests:
+            sharepoint_script = _run_script(
+                [
+                    sys.executable,
+                    str(ROOT / "scripts" / "tests" / "run_sharepoint_mock_smoke.py"),
+                    "--base-url",
+                    args.base_url,
+                    "--username",
+                    args.username,
+                    "--password",
+                    args.password,
+                ],
+                ROOT,
             )
-        )
+            checks.append(
+                CheckResult(
+                    "sharepoint_mock_smoke",
+                    sharepoint_script.returncode == 0,
+                    "SharePoint mock smoke script passed." if sharepoint_script.returncode == 0 else sharepoint_script.stdout[-800:],
+                    {
+                        "returncode": sharepoint_script.returncode,
+                        "stdout_tail": sharepoint_script.stdout[-1200:],
+                        "stderr_tail": sharepoint_script.stderr[-1200:],
+                    },
+                )
+            )
 
         upload_script = _run_script(
             [
@@ -446,7 +460,7 @@ def main() -> int:
             )
         )
 
-        if sharepoint_document:
+        if args.include_connector_tests and sharepoint_document:
             perf.append(
                 _measure(
                     "grounded_chat_sharepoint",
@@ -465,52 +479,53 @@ def main() -> int:
                 )
             )
 
-        try:
-            preview_browse = _request_json(
-                session,
-                "POST",
-                f"{args.base_url}/connectors/browse",
-                json={"provider": "google_drive", "auth_mode": "drive"},
-                timeout=120,
-            )
-            checks.append(
-                CheckResult(
-                    "google_drive_browse",
-                    len(preview_browse.get("folders", [])) > 0,
-                    f"Google Drive browse returned {len(preview_browse.get('folders', []))} folders.",
-                    {"folder_count": len(preview_browse.get("folders", []))},
+        if args.include_connector_tests:
+            try:
+                preview_browse = _request_json(
+                    session,
+                    "POST",
+                    f"{args.base_url}/connectors/browse",
+                    json={"provider": "google_drive", "auth_mode": "drive"},
+                    timeout=120,
                 )
-            )
-            perf.append(
-                _measure(
-                    "google_drive_browse",
-                    lambda: _request_json(
-                        session,
-                        "POST",
-                        f"{args.base_url}/connectors/browse",
-                        json={"provider": "google_drive", "auth_mode": "drive"},
-                        timeout=120,
-                    ),
-                    runs=3,
-                )
-            )
-        except Exception as exc:  # noqa: BLE001
-            detail = str(exc)
-            lowered = detail.lower()
-            if (
-                "connectors/browse failed: 422" in lowered
-                and "token has been expired or revoked" in lowered
-            ):
                 checks.append(
                     CheckResult(
                         "google_drive_browse",
-                        True,
-                        "Google Drive browse is unavailable because the OAuth token has expired or been revoked, but existing synced Drive documents are still accessible.",
-                        {"degraded": True, "error": detail},
+                        len(preview_browse.get("folders", [])) > 0,
+                        f"Google Drive browse returned {len(preview_browse.get('folders', []))} folders.",
+                        {"folder_count": len(preview_browse.get("folders", []))},
                     )
                 )
-            else:
-                raise
+                perf.append(
+                    _measure(
+                        "google_drive_browse",
+                        lambda: _request_json(
+                            session,
+                            "POST",
+                            f"{args.base_url}/connectors/browse",
+                            json={"provider": "google_drive", "auth_mode": "drive"},
+                            timeout=120,
+                        ),
+                        runs=3,
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001
+                detail = str(exc)
+                lowered = detail.lower()
+                if (
+                    "connectors/browse failed: 422" in lowered
+                    and "token has been expired or revoked" in lowered
+                ):
+                    checks.append(
+                        CheckResult(
+                            "google_drive_browse",
+                            True,
+                            "Google Drive browse is unavailable because the OAuth token has expired or been revoked, but existing synced Drive documents are still accessible.",
+                            {"degraded": True, "error": detail},
+                        )
+                    )
+                else:
+                    raise
 
     except Exception as exc:  # noqa: BLE001
         checks.append(CheckResult("fatal", False, str(exc)))
