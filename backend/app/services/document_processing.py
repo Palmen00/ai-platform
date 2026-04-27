@@ -739,17 +739,30 @@ class DocumentProcessingService:
             ("tax", r"(?im)^\s*(?:vat|moms|tax)\s*[:\-]?\s*(.+)$"),
         )
         for key, pattern in patterns:
+            candidates: list[tuple[int, float, str | None]] = []
             for match in re.finditer(pattern, text):
                 fragment = match.group(1)
-                money = self._last_money_in_text(fragment)
-                if not money:
+                money_matches = self._money_matches(fragment)
+                if not money_matches:
                     continue
-                amount, currency = money
-                if amount is not None:
-                    values[key] = amount
-                    if currency and not values["currency"]:
-                        values["currency"] = currency
+                for money_match in reversed(money_matches):
+                    amount, currency = self._parse_money_value(money_match.group(0))
+                    if amount is None:
+                        continue
+                    score = 1
+                    if currency:
+                        score += 4
+                    if re.search(r"[.,]\d{1,2}", money_match.group(0)):
+                        score += 2
+                    if re.search(r"\d+[.,]\d{2}\d+[.,]\d{2}", fragment):
+                        score -= 3
+                    candidates.append((score, amount, currency))
                     break
+            if candidates:
+                _score, amount, currency = max(candidates, key=lambda item: item[0])
+                values[key] = amount
+                if currency and not values["currency"]:
+                    values["currency"] = currency
         return values
 
     def _extract_commercial_line_items(self, text: str) -> list[DocumentCommercialLineItem]:
@@ -761,12 +774,21 @@ class DocumentProcessingService:
         line_items: list[DocumentCommercialLineItem] = []
         in_table = False
         table_rows_seen = 0
+        line_items.extend(self._extract_multiline_invoice_table_items(lines))
+        line_items.extend(self._extract_position_invoice_table_items(lines))
+        line_items.extend(self._extract_stacked_invoice_table_items(lines))
 
         for line in lines[:600]:
             lowered = line.lower()
             keyed_item = self._parse_keyed_line_item(line)
             if keyed_item:
                 line_items.append(keyed_item)
+                continue
+            if (
+                self._looks_like_invoice_quantity_line(line)
+                or self._looks_like_compact_invoice_line(line)
+                or self._looks_like_continued_invoice_quantity_line(line)
+            ):
                 continue
             if self._looks_like_line_item_header(lowered):
                 in_table = True
@@ -830,12 +852,308 @@ class DocumentProcessingService:
             return False
         if not re.search(r"[A-Za-zÅÄÖåäö]{3,}", line):
             return False
-        money_count = len(self._money_matches(line))
+        money_count = len(self._price_like_matches(line))
         if money_count >= 2:
             return True
         return money_count >= 1 and any(
             marker in lowered
             for marker in ("product", "item", "service", "subscription", "license", "fee")
+        )
+
+    def _extract_multiline_invoice_table_items(
+        self,
+        lines: list[str],
+    ) -> list[DocumentCommercialLineItem]:
+        line_items: list[DocumentCommercialLineItem] = []
+        active_description: list[str] = []
+        active_barcode: str | None = None
+        active_row = False
+
+        def flush_numeric_line(line: str) -> None:
+            nonlocal active_description, active_barcode, active_row
+            item = self._parse_multiline_invoice_numeric_line(
+                line,
+                active_description,
+                active_barcode,
+            )
+            if item:
+                line_items.append(item)
+            active_description = []
+            active_barcode = None
+            active_row = False
+
+        for line in lines[:700]:
+            lowered = line.lower()
+            if self._looks_like_line_item_table_end(lowered):
+                active_description = []
+                active_barcode = None
+                active_row = False
+                continue
+
+            compact_row = re.match(r"^\s*(\d{1,3})\s+(.+?)\s+(\d+(?:[.,]\d+)?)\s+(?:szt|st|pcs?|stk|x)\.?\s+(.+)$", line, flags=re.IGNORECASE)
+            if compact_row and not self._is_line_item_noise(line):
+                description = self._clean_line_item_description(compact_row.group(2))
+                tail = f"{compact_row.group(3)} szt {compact_row.group(4)}"
+                item = self._parse_multiline_invoice_numeric_line(tail, [description], None)
+                if item:
+                    item.source_line = line
+                    line_items.append(item)
+                    active_description = []
+                    active_barcode = None
+                    active_row = False
+                    continue
+
+            row_match = re.match(
+                r"^\s*(\d{1,3})\s+([A-Z0-9]{6,})(?:\s+(.+))?\s*$",
+                line,
+                flags=re.IGNORECASE,
+            )
+            if row_match:
+                active_row = True
+                active_description = []
+                active_barcode = row_match.group(2)
+                if row_match.group(3):
+                    cleaned = self._clean_multiline_description_fragment(row_match.group(3))
+                    if cleaned:
+                        active_description.append(cleaned)
+                continue
+
+            if active_row and self._looks_like_invoice_quantity_line(line):
+                flush_numeric_line(line)
+                continue
+
+            if active_row:
+                tail_match = re.match(
+                    r"^\s*(?P<desc>.+?)\s+(?P<qty>\d+(?:[.,]\d+)?)\s+"
+                    r"(?:szt|st|pcs?|stk|x)\.?\s+(?P<tail>\d+(?:[.,]\d{2}).+)$",
+                    line,
+                    flags=re.IGNORECASE,
+                )
+                if tail_match:
+                    cleaned_tail = self._clean_multiline_description_fragment(
+                        tail_match.group("desc")
+                    )
+                    if cleaned_tail:
+                        active_description.append(cleaned_tail)
+                    flush_numeric_line(
+                        f"{tail_match.group('qty')} szt {tail_match.group('tail')}"
+                    )
+                    continue
+
+            if active_row:
+                if self._is_line_item_noise(line) and len(line.strip()) >= 6:
+                    continue
+                cleaned = self._clean_multiline_description_fragment(line)
+                if cleaned and not self._looks_like_invoice_quantity_line(cleaned):
+                    active_description.append(cleaned)
+                    active_description = active_description[-8:]
+
+        return line_items
+
+    def _looks_like_invoice_quantity_line(self, line: str) -> bool:
+        return bool(
+            re.match(
+                r"^\s*\d+(?:[.,]\d+)?\s+(?:szt|st|pcs?|stk|x)\.?\s+\d+(?:[.,]\d{2})\b",
+                line,
+                flags=re.IGNORECASE,
+            )
+        )
+
+    def _looks_like_compact_invoice_line(self, line: str) -> bool:
+        return bool(
+            re.match(
+                r"^\s*\d{1,3}\s+.+?\s+\d+(?:[.,]\d+)?\s+(?:szt|st|pcs?|stk|x)\.?\s+\d+(?:[.,]\d{2})\b",
+                line,
+                flags=re.IGNORECASE,
+            )
+        )
+
+    def _looks_like_continued_invoice_quantity_line(self, line: str) -> bool:
+        return bool(
+            re.match(
+                r"^\s*(?:szt|st|pcs?|stk|x)\b.+?\s+\d+(?:[.,]\d+)?\s+"
+                r"(?:szt|st|pcs?|stk|x)\.?\s+\d+(?:[.,]\d{2})\b",
+                line,
+                flags=re.IGNORECASE,
+            )
+        )
+
+    def _extract_position_invoice_table_items(
+        self,
+        lines: list[str],
+    ) -> list[DocumentCommercialLineItem]:
+        line_items: list[DocumentCommercialLineItem] = []
+        active_description: list[str] = []
+        active_sku: str | None = None
+        active_row = False
+
+        for line in lines[:700]:
+            lowered = line.lower()
+            if self._looks_like_line_item_table_end(lowered):
+                active_description = []
+                active_sku = None
+                active_row = False
+                continue
+
+            row_match = re.match(
+                r"^\s*\d{3,4}\s+([A-Z0-9._/-]{5,})\s+(.+)$",
+                line,
+                flags=re.IGNORECASE,
+            )
+            if row_match and not self._is_line_item_noise(line):
+                active_row = True
+                active_sku = row_match.group(1)
+                active_description = [
+                    self._clean_multiline_description_fragment(row_match.group(2))
+                ]
+                active_description = [part for part in active_description if part]
+                continue
+
+            if active_row:
+                amount_match = re.match(
+                    r"^\s*(?P<qty>\d+(?:[.,]\d+)?)\s+"
+                    r"(?P<unit>-?\d+(?:[.,]\d{2}))\s+"
+                    r"(?P<total>-?\d+(?:[.,]\d{2}))\s*$",
+                    line,
+                )
+                if amount_match and active_description:
+                    description = self._clean_line_item_description(
+                        re.sub(r"-\s+", "-", " ".join(active_description))
+                    )
+                    quantity, _ = self._parse_money_value(amount_match.group("qty"))
+                    unit_price, _ = self._parse_money_value(amount_match.group("unit"))
+                    total, _ = self._parse_money_value(amount_match.group("total"))
+                    if description:
+                        line_items.append(
+                            DocumentCommercialLineItem(
+                                description=description,
+                                quantity=quantity,
+                                unit_price=unit_price,
+                                total=total,
+                                sku=active_sku,
+                                source_line=f"{description} {line}",
+                                confidence=0.94,
+                            )
+                        )
+                    active_description = []
+                    active_sku = None
+                    active_row = False
+                    continue
+
+                if self._is_line_item_noise(line) and len(line.strip()) >= 6:
+                    continue
+                cleaned = self._clean_multiline_description_fragment(line)
+                if cleaned:
+                    active_description.append(cleaned)
+                    active_description = active_description[-8:]
+
+        return line_items
+
+    def _extract_stacked_invoice_table_items(
+        self,
+        lines: list[str],
+    ) -> list[DocumentCommercialLineItem]:
+        header_index: int | None = None
+        for index, line in enumerate(lines[:500]):
+            lowered = line.lower()
+            if "items & description" in lowered or "item description" in lowered:
+                header_index = index
+                break
+        if header_index is None:
+            return []
+
+        line_items: list[DocumentCommercialLineItem] = []
+        index = header_index + 1
+        stop_markers = ("invoice no", "subtotal", "total", "amount due", "bill to")
+        while index < min(len(lines), header_index + 140):
+            line = lines[index]
+            lowered = line.lower()
+            if any(marker in lowered for marker in stop_markers):
+                break
+            if not re.fullmatch(r"\d{1,3}", line):
+                index += 1
+                continue
+
+            description_parts: list[str] = []
+            cursor = index + 1
+            while cursor + 2 < len(lines):
+                candidate = lines[cursor]
+                if re.fullmatch(r"\d+(?:[.,]\d+)?", candidate):
+                    unit_line = lines[cursor + 1]
+                    total_line = lines[cursor + 2]
+                    unit_price, unit_currency = self._parse_money_value(unit_line)
+                    total, total_currency = self._parse_money_value(total_line)
+                    if unit_price is not None and total is not None and description_parts:
+                        quantity, _ = self._parse_money_value(candidate)
+                        description = self._clean_line_item_description(
+                            re.sub(r"-\s+", "-", " ".join(description_parts))
+                        )
+                        if description:
+                            line_items.append(
+                                DocumentCommercialLineItem(
+                                    description=description,
+                                    quantity=quantity,
+                                    unit_price=unit_price,
+                                    total=total,
+                                    currency=unit_currency or total_currency,
+                                    source_line=f"{description} {candidate} {unit_line} {total_line}",
+                                    confidence=0.92,
+                                )
+                            )
+                        index = cursor + 3
+                        break
+                if self._is_line_item_noise(candidate) and len(candidate.strip()) >= 6:
+                    cursor += 1
+                    continue
+                cleaned = self._clean_multiline_description_fragment(candidate)
+                if cleaned:
+                    description_parts.append(cleaned)
+                    description_parts = description_parts[-8:]
+                cursor += 1
+            else:
+                index += 1
+                continue
+
+        return line_items
+
+    def _parse_multiline_invoice_numeric_line(
+        self,
+        line: str,
+        description_parts: list[str],
+        barcode: str | None,
+    ) -> DocumentCommercialLineItem | None:
+        if not description_parts:
+            return None
+        match = re.match(
+            r"^\s*(?P<qty>\d+(?:[.,]\d+)?)\s+(?:szt|st|pcs?|stk|x)\.?\s+"
+            r"(?P<unit>-?\d+(?:[.,]\d{2}))\s+"
+            r"(?P<tax_rate>\d+(?:[.,]\d+)?)\s+"
+            r"(?P<net>-?\d+(?:[.,]\d{2}))\s+"
+            r"(?P<tax>-?\d+(?:[.,]\d{2}))\s+"
+            r"(?P<gross>-?\d+(?:[.,]\d{2}))",
+            line,
+            flags=re.IGNORECASE,
+        )
+        if not match:
+            return None
+
+        joined_description = re.sub(r"-\s+", "-", " ".join(description_parts))
+        description = self._clean_line_item_description(joined_description)
+        if not description:
+            return None
+
+        quantity, _ = self._parse_money_value(match.group("qty"))
+        unit_price, _ = self._parse_money_value(match.group("unit"))
+        gross, _ = self._parse_money_value(match.group("gross"))
+        return DocumentCommercialLineItem(
+            description=description,
+            quantity=quantity,
+            unit_price=unit_price,
+            total=gross,
+            currency=None,
+            sku=barcode,
+            source_line=f"{description} {line}",
+            confidence=0.96,
         )
 
     def _parse_keyed_line_item(self, line: str) -> DocumentCommercialLineItem | None:
@@ -872,7 +1190,7 @@ class DocumentProcessingService:
         if self._is_line_item_noise(line):
             return None
 
-        money_matches = self._money_matches(line)
+        money_matches = self._price_like_matches(line)
         if not money_matches:
             return None
 
@@ -898,14 +1216,13 @@ class DocumentProcessingService:
         if len(amount_values) >= 2:
             prefix = line[: amount_values[-2][0]].strip(" |,;\t")
 
-        quantity = self._extract_trailing_quantity(prefix)
-        description = prefix
-        if quantity is not None:
+        description, quantity, row_sku = self._split_invoice_row_prefix(prefix)
+        if description == prefix:
             description = re.sub(
                 r"(?<![A-Za-z])\d+(?:[.,]\d+)?\s*$",
                 "",
                 description,
-            ).strip(" |,;\t")
+            ).strip(" |,;\t") if quantity is not None else description
 
         description = self._clean_line_item_description(description)
         if not description:
@@ -914,7 +1231,7 @@ class DocumentProcessingService:
             return None
 
         sku_match = re.search(r"\b(?:sku|art(?:icle)?|item\s*no)\s*[:#-]?\s*([A-Z0-9._/-]{3,30})", line, flags=re.IGNORECASE)
-        sku = sku_match.group(1).strip(" .,:;") if sku_match else None
+        sku = row_sku or (sku_match.group(1).strip(" .,:;") if sku_match else None)
         confidence = 0.86 if in_table else 0.68
         if quantity is not None:
             confidence += 0.04
@@ -933,13 +1250,50 @@ class DocumentProcessingService:
         )
 
     def _money_matches(self, text: str) -> list[re.Match[str]]:
+        number_pattern = (
+            r"-?(?:"
+            r"\d{1,3}(?:[ .]\d{3})+(?:,\d{1,2})?"
+            r"|\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?"
+            r"|\d+(?:[.,]\d{1,2})?"
+            r")"
+        )
         money_pattern = (
             r"(?<![A-Za-z0-9])"
-            r"(?:SEK|USD|EUR|GBP|DKK|NOK|kr|\$|€|£)?\s*"
-            r"-?\d+(?:,\d{3})*(?:[.,]\d{2})?"
-            r"|(?<![A-Za-z0-9])-?\d+(?:[.,]\d{2})\s*(?:SEK|USD|EUR|GBP|DKK|NOK|kr|\$|€|£)?"
+            rf"(?:SEK|USD|EUR|GBP|DKK|NOK|kr|\$|€|£)\s*{number_pattern}"
+            r"(?![.,]\d)"
+            r"|"
+            r"(?<![A-Za-z0-9])"
+            rf"{number_pattern}\s*(?:SEK|USD|EUR|GBP|DKK|NOK|kr|\$|€|£)"
+            r"(?![.,]\d)"
+            r"|"
+            r"(?<![A-Za-z0-9])"
+            rf"{number_pattern}"
+            r"(?![.,]\d)"
         )
         return list(re.finditer(money_pattern, text, flags=re.IGNORECASE))
+
+    def _price_like_matches(self, text: str) -> list[re.Match[str]]:
+        price_number_pattern = (
+            r"-?(?:"
+            r"\d{1,3}(?:[ .]\d{3})+,\d{2}"
+            r"|\d{1,3}(?:,\d{3})+\.\d{2}"
+            r"|\d+(?:[.,]\d{2})"
+            r")"
+        )
+        price_pattern = (
+            r"(?<![A-Za-z0-9])"
+            rf"(?:SEK|USD|EUR|GBP|DKK|NOK|kr|\$|€|£)\s*{price_number_pattern}"
+            r"(?![.,]\d)"
+            r"|"
+            r"(?<![A-Za-z0-9])"
+            rf"{price_number_pattern}\s*(?:SEK|USD|EUR|GBP|DKK|NOK|kr|\$|€|£)"
+            r"(?![.,]\d)"
+            r"|"
+            r"(?<![A-Za-z0-9])"
+            rf"{price_number_pattern}"
+            r"(?![.,]\d)"
+        )
+        return list(re.finditer(price_pattern, text, flags=re.IGNORECASE))
 
     def _last_money_in_text(self, text: str) -> tuple[float | None, str | None] | None:
         matches = self._money_matches(text)
@@ -952,6 +1306,7 @@ class DocumentProcessingService:
     def _parse_money_value(self, raw_value: str) -> tuple[float | None, str | None]:
         currency = self._normalize_currency(raw_value)
         numeric = re.sub(r"(?i)\b(?:SEK|USD|EUR|GBP|DKK|NOK|kr)\b|[$€£]", "", raw_value)
+        numeric = re.sub(r"[^0-9,.\-\s]", "", numeric)
         numeric = numeric.strip()
         if not numeric:
             return None, currency
@@ -1046,6 +1401,36 @@ class DocumentProcessingService:
             return None
         return amount
 
+    def _split_invoice_row_prefix(
+        self,
+        prefix: str,
+    ) -> tuple[str, float | None, str | None]:
+        normalized = " ".join(prefix.split()).strip(" |,;\t")
+        sku: str | None = None
+
+        unit_match = re.match(
+            r"^(?P<description>.+?)\s+(?P<quantity>\d+(?:[.,]\d+)?)\s+"
+            r"(?:st|szt|pcs?|stk|x)\.?\s*$",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if unit_match:
+            quantity, _ = self._parse_money_value(unit_match.group("quantity"))
+            return unit_match.group("description"), quantity, sku
+
+        ean_match = re.match(
+            r"^(?P<description>.+?)\s+(?P<quantity>\d+(?:[.,]\d+)?)\s+"
+            r"(?P<sku>\d{8,14})\s*$",
+            normalized,
+            flags=re.IGNORECASE,
+        )
+        if ean_match:
+            quantity, _ = self._parse_money_value(ean_match.group("quantity"))
+            return ean_match.group("description"), quantity, ean_match.group("sku")
+
+        quantity = self._extract_trailing_quantity(normalized)
+        return normalized, quantity, sku
+
     def _clean_line_item_description(self, value: str) -> str:
         cleaned = re.sub(r"\s+", " ", value).strip(" .,:;|-")
         cleaned = re.sub(
@@ -1060,12 +1445,25 @@ class DocumentProcessingService:
             return ""
         return cleaned
 
+    def _clean_multiline_description_fragment(self, value: str) -> str:
+        cleaned = re.sub(r"\s+", " ", value).strip(" .,:;|")
+        cleaned = re.sub(
+            r"(?i)\b(?:qty|quantity|antal|unit price|price|amount|total|sum)\b.*$",
+            "",
+            cleaned,
+        ).strip(" .,:;|")
+        if not re.search(r"[A-Za-zÅÄÖåäö0-9]{2,}", cleaned):
+            return ""
+        return cleaned
+
     def _is_line_item_noise(self, line: str) -> bool:
         lowered = line.lower()
         if self._looks_like_line_item_table_end(lowered):
             return True
+        if "eu-idm" in lowered:
+            return True
         if re.search(
-            r"\b(?:invoice|faktura|date|due|subtotal|vat|moms|tax|payment|bank|iban|bic|swift|address|phone|email|page)\b",
+            r"\b(?:invoice|faktura|date|due|subtotal|vat|vatin|moms|momsfrit|momspligtigt|tax|payment|bank|account|paypal|iban|bic|swift|address|phone|email|page|seller|buyer|signature|prepayment|prepayments|tax rates|gross value|net value|cn code|kod cn|country|origin|exporter|tariff|headings|based on order|order:|vat-exempt|amount subject|vat identifier|vat base|amount incl|eu-idm)\b",
             lowered,
         ):
             return True

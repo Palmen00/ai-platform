@@ -73,7 +73,164 @@ def test_keyed_invoice_item() -> None:
     _assert_close(summary.line_items[0].total, 2550)
 
 
+def test_multiline_invoice_table_ignores_bank_accounts() -> None:
+    service = DocumentProcessingService()
+    text = """
+    Bank: BNP PARIBAS
+    SWIFT / BIC: PPABPLPK
+    account number PLN: 36 1600 1462 1892 0880 3000 0001
+    account number EUR: PL79 1600 1462 1892 0880 3000 0003
+    Invoice date 9.03.2026
+    Faktura / Invoice FS 119/03/2026 original
+    No. Kod kreskowy / Barcode Nazwa / Item name / Bicycle part
+    Ilość / Quantity Cena netto / Unit net price Stawka VAT / Tax rate [%]
+    1 5908374272694
+    Cover AERO for Alugear
+    chainrings R9200 12sp
+    Black
+    1 szt 40.60 0 40.60 0.00 40.60 8714.96.90.00 POLAND
+    2 5908374273769
+    Chainrings set 2-speed
+    ALUGEAR AERO 54T-
+    40T Round for 2x12 110
+    BCD 4b Shimano
+    Asymetric Road/Gravel
+    Black
+    1 szt 90.60 0 90.60 0.00 90.60 8714.96.90.00 POLAND
+    5 B2B shipping 1 szt 15.00 0 15.00 0.00 15.00
+    Total: 209.80 EUR
+    """
+
+    summary = service.extract_commercial_summary(text, "FS 119_03_2026_GnNJ.pdf", "invoice")
+
+    assert summary is not None
+    assert summary.invoice_date == "2026-03-09"
+    _assert_close(summary.total, 209.8)
+    assert summary.currency == "EUR"
+    descriptions = [item.description for item in summary.line_items]
+    assert descriptions == [
+        "Cover AERO for Alugear chainrings R9200 12sp Black",
+        "Chainrings set 2-speed ALUGEAR AERO 54T-40T Round for 2x12 110 BCD 4b Shimano Asymetric Road/Gravel Black",
+        "B2B shipping",
+    ]
+    assert all("account number" not in description.lower() for description in descriptions)
+    _assert_close(summary.line_items[0].quantity, 1)
+    _assert_close(summary.line_items[0].unit_price, 40.6)
+    _assert_close(summary.line_items[0].total, 40.6)
+    _assert_close(summary.line_items[2].total, 15)
+
+
+def test_swedish_invoice_rows_extract_products_and_quantities() -> None:
+    service = DocumentProcessingService()
+    text = """
+    Artnr Benämning Lev ant Enhet À-pris Summa
+    26241 U Gel (30g Carbs) Persika (12-pack) 1 st 168,00 168,00
+    26277 U Gel (30g Carbs) Skogsbär + koffein (12-pack) 1 st 168,00 168,00
+    3002 Frakt - DHL Paket 1 st 150,00 150,00
+    Fakt. avgift Exkl. moms Moms Totalt ATT BETALA
+    0,43 2 771,43 332,57 3 104,00 SEK 3 104,00
+    """
+
+    summary = service.extract_commercial_summary(text, "Faktura_166721.pdf", "invoice")
+
+    assert summary is not None
+    assert [item.description for item in summary.line_items] == [
+        "26241 U Gel (30g Carbs) Persika (12-pack)",
+        "26277 U Gel (30g Carbs) Skogsbär + koffein (12-pack)",
+        "3002 Frakt - DHL Paket",
+    ]
+    _assert_close(summary.line_items[0].quantity, 1)
+    _assert_close(summary.line_items[0].unit_price, 168)
+    _assert_close(summary.line_items[2].total, 150)
+
+
+def test_european_thousand_prices_and_ean_rows() -> None:
+    service = DocumentProcessingService()
+    text = """
+    Number Product text Quantity EAN Unit price Price
+    MAG-43 P715S Watt pedaler SPD-SL 1 6971606842605 2.127,44 2.127,44
+    999 Fragt 1 95,00 95,00
+    TotalDKK: 2.222,44
+    """
+
+    summary = service.extract_commercial_summary(text, "Faktura_927.pdf", "invoice")
+
+    assert summary is not None
+    assert summary.line_items[0].description == "MAG-43 P715S Watt pedaler SPD-SL"
+    assert summary.line_items[0].sku == "6971606842605"
+    _assert_close(summary.line_items[0].quantity, 1)
+    _assert_close(summary.line_items[0].unit_price, 2127.44)
+    _assert_close(summary.line_items[0].total, 2127.44)
+    assert summary.line_items[1].description == "999 Fragt"
+
+
+def test_position_invoice_rows_ignore_tariff_metadata() -> None:
+    service = DocumentProcessingService()
+    text = """
+    Pos. No. Description Quantity VAT %
+    Unit Price
+    Excl. VAT Amount (EUR)
+    001 20206417 Continental
+    Grand Prix 5000 S TR 28" Transparent-Edition Folding
+    Tyre
+    1 44.53 44.53
+    Tariff number: 40115000
+    Country of origin: Deutschland
+    003 20184400 Shimano
+    XTR CN-M9100 12-speed Chain with Quick-Link
+    1 36.97 36.97
+    Tariff number: 73151110
+    EU-IDM19 0% 251.94 0.00 251.94
+    """
+
+    summary = service.extract_commercial_summary(text, "Rechnung-58522131.pdf", "invoice")
+
+    assert summary is not None
+    assert [item.description for item in summary.line_items] == [
+        'Continental Grand Prix 5000 S TR 28" Transparent-Edition Folding Tyre',
+        "Shimano XTR CN-M9100 12-speed Chain with Quick-Link",
+    ]
+    assert all("tariff" not in item.description.lower() for item in summary.line_items)
+    assert summary.line_items[0].sku == "20206417"
+    _assert_close(summary.line_items[1].total, 36.97)
+
+
+def test_stacked_invoice_item_block() -> None:
+    service = DocumentProcessingService()
+    text = """
+    #
+    ITEMS & DESCRIPTION
+    QTY/HRS
+    PRICE
+    AMOUNT(GBP)
+    1
+    31.8mm round clamp adapters with 22.2mm
+    extension clamps and 40mm stackers
+    1
+    GBP 206.67
+    GBP 206.67
+    INVOICE
+    Invoice No#
+    7441
+    """
+
+    summary = service.extract_commercial_summary(text, "Invoice - 7441.pdf", "invoice")
+
+    assert summary is not None
+    assert summary.line_items[0].description == (
+        "31.8mm round clamp adapters with 22.2mm extension clamps and 40mm stackers"
+    )
+    _assert_close(summary.line_items[0].quantity, 1)
+    _assert_close(summary.line_items[0].unit_price, 206.67)
+    assert summary.line_items[0].currency == "GBP"
+
+
 if __name__ == "__main__":
     test_tabular_invoice_items()
     test_keyed_invoice_item()
+    test_multiline_invoice_table_ignores_bank_accounts()
+    test_swedish_invoice_rows_extract_products_and_quantities()
+    test_european_thousand_prices_and_ean_rows()
+    test_position_invoice_rows_ignore_tariff_metadata()
+    test_stacked_invoice_item_block()
     print("commercial extraction tests passed")

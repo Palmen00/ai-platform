@@ -3825,13 +3825,7 @@ class DocumentService:
                 document.document_date_kind = detected_date_kind
                 changed = True
 
-        if extracted_text and (
-            document.commercial_summary is None
-            or (
-                document.detected_document_type in {"invoice", "receipt", "quote"}
-                and not document.commercial_summary.line_items
-            )
-        ):
+        if extracted_text and self._should_refresh_commercial_summary(document):
             commercial_summary = self.processing_service.extract_commercial_summary(
                 extracted_text,
                 document.original_name,
@@ -4061,6 +4055,45 @@ class DocumentService:
         ]
         multiword_entities = [entity for entity in document.document_entities if len(entity.split()) >= 2]
         return len(strong_entity_signals) < 2 or len(multiword_entities) < 2
+
+    def _should_refresh_commercial_summary(self, document: DocumentRecord) -> bool:
+        summary = self._coerce_commercial_summary(document.commercial_summary)
+        if summary is None:
+            return True
+        if document.detected_document_type not in {"invoice", "receipt", "quote"}:
+            return False
+        if not summary.line_items:
+            return True
+
+        suspicious_markers = (
+            "account number",
+            "account no",
+            "bank",
+            "iban",
+            "swift",
+            "bic",
+            "paypal",
+            "vatin",
+            "seller",
+            "buyer",
+            "signature",
+            "prepayment",
+            "tax rates",
+            "gross value",
+            "net value",
+            "cn code",
+            "kod cn",
+            "country of origin",
+            "based on order",
+        )
+        for item in summary.line_items:
+            haystack = self._strip_accents(
+                f"{item.description} {item.source_line or ''}"
+            ).lower()
+            if any(marker in haystack for marker in suspicious_markers):
+                return True
+
+        return False
 
     def _needs_background_intelligence_refresh(self, document: DocumentRecord) -> bool:
         if document.processing_status != "processed":
