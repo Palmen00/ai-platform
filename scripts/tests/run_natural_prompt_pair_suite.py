@@ -44,6 +44,8 @@ FALLBACK_PHRASES = (
 @dataclass
 class MaterializedCase:
     id: str
+    category: str
+    situation: str
     selector: str
     perfect_prompt: str
     human_prompt: str
@@ -56,6 +58,8 @@ class MaterializedCase:
     requires_sources: bool
     requires_target_name: bool
     min_source_overlap: float
+    expected_reply_terms: list[str]
+    forbidden_reply_terms: list[str]
 
 
 @dataclass
@@ -72,6 +76,8 @@ class PromptRun:
 @dataclass
 class PairResult:
     case_id: str
+    category: str
+    situation: str
     selector: str
     target_document_name: str | None
     other_document_name: str | None
@@ -211,6 +217,47 @@ def _pick_topic_document(documents: list[dict[str, Any]]) -> tuple[dict[str, Any
     return fallback, _short_name(str(fallback.get("original_name", "")))
 
 
+def _document_search_text(document: dict[str, Any]) -> str:
+    values: list[str] = [
+        str(document.get("original_name", "")),
+        str(document.get("document_title", "")),
+        str(document.get("detected_document_type", "")),
+        str(document.get("source_kind", "")),
+        str(document.get("document_summary_anchor", "")),
+    ]
+    values.extend(str(topic) for topic in document.get("document_topics", []) or [])
+    values.extend(str(entity) for entity in document.get("document_entities", []) or [])
+    return " ".join(values).lower()
+
+
+def _pick_document_by_hints(
+    documents: list[dict[str, Any]],
+    hints: list[str],
+) -> dict[str, Any] | None:
+    normalized_hints = [hint.lower() for hint in hints if hint.strip()]
+    if not normalized_hints:
+        return None
+
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for document in documents:
+        search_text = _document_search_text(document)
+        matched = sum(1 for hint in normalized_hints if hint in search_text)
+        if matched:
+            candidates.append((_document_score(document) + (matched * 20), document))
+
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    return candidates[0][1]
+
+
+def _pick_ocr_document(documents: list[dict[str, Any]]) -> dict[str, Any] | None:
+    ocr_documents = [document for document in documents if document.get("ocr_used")]
+    if not ocr_documents:
+        return None
+    return sorted(ocr_documents, key=_document_score, reverse=True)[0]
+
+
 def _pick_similar_document(documents: list[dict[str, Any]]) -> dict[str, Any] | None:
     for document in sorted(documents, key=_document_score, reverse=True):
         if document.get("similar_documents"):
@@ -269,8 +316,21 @@ def _materialize_case(
 
     if selector in {"latest_document", "representative_document"}:
         target = documents[0] if selector == "latest_document" else _pick_representative_document(documents)
+    elif selector == "runtime":
+        target = None
     elif selector == "topic_document":
         target, topic = _pick_topic_document(documents)
+    elif selector == "typed_document":
+        target = _pick_document_by_hints(
+            documents,
+            [str(value) for value in raw_case.get("type_hints", [])],
+        )
+        if target is None:
+            return None
+    elif selector == "ocr_document":
+        target = _pick_ocr_document(documents)
+        if target is None:
+            return None
     elif selector == "similar_document":
         target = _pick_similar_document(documents)
         if target is None:
@@ -292,11 +352,14 @@ def _materialize_case(
         "short_name": _short_name(target_name),
         "other_document_name": other_name,
         "other_short_name": _short_name(other_name),
+        "document_type": str(target.get("detected_document_type") or target.get("source_kind") or "document") if target else "document",
         "topic": topic or "",
     }
 
     return MaterializedCase(
         id=str(raw_case["id"]),
+        category=str(raw_case.get("category") or "General"),
+        situation=str(raw_case.get("situation") or ""),
         selector=selector,
         perfect_prompt=_format_prompt(str(raw_case["perfect_prompt"]), values),
         human_prompt=_format_prompt(str(raw_case["human_prompt"]), values),
@@ -313,6 +376,14 @@ def _materialize_case(
         requires_sources=bool(raw_case.get("requires_sources", False)),
         requires_target_name=bool(raw_case.get("requires_target_name", False)),
         min_source_overlap=float(raw_case.get("min_source_overlap", 0.0)),
+        expected_reply_terms=[
+            _format_prompt(str(term), values)
+            for term in raw_case.get("expected_reply_terms", [])
+        ],
+        forbidden_reply_terms=[
+            _format_prompt(str(term), values)
+            for term in raw_case.get("forbidden_reply_terms", [])
+        ],
     )
 
 
@@ -370,6 +441,20 @@ def _has_fallback(reply: str) -> bool:
     return any(phrase in lowered for phrase in FALLBACK_PHRASES)
 
 
+def _contains_expected_terms(reply: str, terms: list[str]) -> bool:
+    if not terms:
+        return True
+    normalized_reply = _normalize_name(reply)
+    return all(_normalize_name(term) in normalized_reply for term in terms if term.strip())
+
+
+def _avoids_forbidden_terms(reply: str, terms: list[str]) -> bool:
+    if not terms:
+        return True
+    normalized_reply = _normalize_name(reply)
+    return not any(_normalize_name(term) in normalized_reply for term in terms if term.strip())
+
+
 def _target_mentioned(case: MaterializedCase, reply: str, source_names: list[str]) -> bool:
     if not case.target_document_name:
         return True
@@ -412,13 +497,17 @@ def _evaluate_run(
     overlap_ok = True
     if compare_sources is not None and case.min_source_overlap > 0:
         overlap_ok = _source_overlap(compare_sources, sources) >= case.min_source_overlap
+    expected_ok = _contains_expected_terms(reply, case.expected_reply_terms)
+    forbidden_ok = _avoids_forbidden_terms(reply, case.forbidden_reply_terms)
 
-    ok = reply_ok and source_ok and target_ok and overlap_ok
+    ok = reply_ok and source_ok and target_ok and overlap_ok and expected_ok and forbidden_ok
     details = [
         "reply-ok" if reply_ok else "reply-weak-or-fallback",
         "sources-ok" if source_ok else "missing-sources",
         "target-ok" if target_ok else "target-not-mentioned",
         "overlap-ok" if overlap_ok else "source-overlap-low",
+        "expected-ok" if expected_ok else "expected-terms-missing",
+        "forbidden-ok" if forbidden_ok else "forbidden-terms-found",
     ]
     return PromptRun(
         prompt=prompt,
@@ -493,6 +582,8 @@ def _run_case(
 
     return PairResult(
         case_id=case.id,
+        category=case.category,
+        situation=case.situation,
         selector=case.selector,
         target_document_name=case.target_document_name,
         other_document_name=case.other_document_name,
@@ -520,11 +611,25 @@ def _write_markdown(
         f"- Model: `{metadata['model'] or 'backend default'}`",
         f"- Cases: `{passed}/{len(results)}` passed",
         "",
+        "## Category Summary",
+        "",
+        "| Category | Passed | Total |",
+        "| --- | ---: | ---: |",
+    ]
+
+    categories = sorted({case.category for case in cases})
+    for category in categories:
+        category_results = [result for result in results if result.category == category]
+        category_passed = sum(1 for result in category_results if result.ok)
+        lines.append(f"| {category} | {category_passed} | {len(category_results)} |")
+
+    lines.extend([
+        "",
         "## Question Sheet",
         "",
-        "| Case | Target | Perfect prompt | Human prompt |",
-        "| --- | --- | --- | --- |",
-    ]
+        "| Category | Situation | Case | Target | Perfect prompt | Human prompt |",
+        "| --- | --- | --- | --- | --- | --- |",
+    ])
 
     for case in cases:
         target_parts = [
@@ -537,6 +642,8 @@ def _write_markdown(
             "| "
             + " | ".join(
                 [
+                    case.category.replace("|", "\\|"),
+                    case.situation.replace("|", "\\|"),
                     f"`{case.id}`",
                     target.replace("|", "\\|"),
                     case.perfect_prompt.replace("|", "\\|"),
@@ -547,33 +654,36 @@ def _write_markdown(
         )
 
     lines.extend(["", "## Results", ""])
-    for result in results:
-        status = "PASS" if result.ok else "FAIL"
-        lines.extend(
-            [
-                f"### {result.case_id} - {status}",
-                "",
-                f"- Target: `{result.target_document_name or 'n/a'}`",
-                f"- Other: `{result.other_document_name or 'n/a'}`",
-                f"- Topic: `{result.topic or 'n/a'}`",
-                f"- Source overlap: `{result.source_overlap:.2f}`",
-                f"- Perfect detail: `{result.perfect.detail}`",
-                f"- Human detail: `{result.human.detail}`",
-                f"- Perfect latency: `{result.perfect.latency_ms:.1f} ms`",
-                f"- Human latency: `{result.human.latency_ms:.1f} ms`",
-                f"- Perfect sources: `{', '.join(result.perfect.source_names) or 'none'}`",
-                f"- Human sources: `{', '.join(result.human.source_names) or 'none'}`",
-                "",
-                "**Perfect reply**",
-                "",
-                result.perfect.reply or "_empty_",
-                "",
-                "**Human reply**",
-                "",
-                result.human.reply or "_empty_",
-                "",
-            ]
-        )
+    for category in categories:
+        lines.extend([f"### {category}", ""])
+        for result in [item for item in results if item.category == category]:
+            status = "PASS" if result.ok else "FAIL"
+            lines.extend(
+                [
+                    f"#### {result.case_id} - {status}",
+                    "",
+                    f"- Situation: `{result.situation or 'n/a'}`",
+                    f"- Target: `{result.target_document_name or 'n/a'}`",
+                    f"- Other: `{result.other_document_name or 'n/a'}`",
+                    f"- Topic: `{result.topic or 'n/a'}`",
+                    f"- Source overlap: `{result.source_overlap:.2f}`",
+                    f"- Perfect detail: `{result.perfect.detail}`",
+                    f"- Human detail: `{result.human.detail}`",
+                    f"- Perfect latency: `{result.perfect.latency_ms:.1f} ms`",
+                    f"- Human latency: `{result.human.latency_ms:.1f} ms`",
+                    f"- Perfect sources: `{', '.join(result.perfect.source_names) or 'none'}`",
+                    f"- Human sources: `{', '.join(result.human.source_names) or 'none'}`",
+                    "",
+                    "**Perfect reply**",
+                    "",
+                    result.perfect.reply or "_empty_",
+                    "",
+                    "**Human reply**",
+                    "",
+                    result.human.reply or "_empty_",
+                    "",
+                ]
+            )
 
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 

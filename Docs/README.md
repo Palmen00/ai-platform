@@ -22,9 +22,10 @@ This folder now uses Markdown as the primary documentation format.
 16. [Security Pentest Report v2](./security-pentest-report-v2-2026-04-06.md)
 17. [Upload And OCR E2E](./upload-ocr-e2e-2026-04-07.md)
 18. [Natural Prompt Pair Testing](./natural-prompt-pair-testing.md)
-19. [SharePoint Mock Smoke](./sharepoint-mock-smoke-2026-04-07.md)
-20. [Roadmap](./roadmap.md)
-21. [Latest Session Handoff](./session-handoff-2026-04-05.md)
+19. [Natural Prompt Scenario Testing](./natural-prompt-scenario-testing.md)
+20. [SharePoint Mock Smoke](./sharepoint-mock-smoke-2026-04-07.md)
+21. [Roadmap](./roadmap.md)
+22. [Latest Session Handoff](./session-handoff-2026-04-05.md)
 
 ## Notes
 

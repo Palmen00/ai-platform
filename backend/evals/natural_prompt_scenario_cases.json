@@ -1,0 +1,351 @@
+{
+  "name": "natural-prompt-scenario-cases",
+  "description": "Larger prompt-pair suite grouped by common user situations and business-style document questions.",
+  "cases": [
+    {
+      "id": "onboarding-what-can-i-ask",
+      "category": "Onboarding",
+      "situation": "A new user asks what the assistant can do.",
+      "selector": "runtime",
+      "perfect_prompt": "Explain briefly what I can use Local AI OS for in this installed workspace.",
+      "human_prompt": "what can you help me with here?",
+      "requires_sources": false
+    },
+    {
+      "id": "onboarding-how-to-use-knowledge",
+      "category": "Onboarding",
+      "situation": "A user wants to know how document knowledge works.",
+      "selector": "runtime",
+      "perfect_prompt": "Explain how uploaded documents are used in chat answers.",
+      "human_prompt": "how do you use my files when i ask stuff?",
+      "requires_sources": false,
+      "expected_reply_terms": ["document"]
+    },
+    {
+      "id": "system-safe-mode",
+      "category": "Onboarding",
+      "situation": "A user asks about a safety setting.",
+      "selector": "runtime",
+      "perfect_prompt": "What does safe mode do in Local AI OS?",
+      "human_prompt": "what does safe mode actually do?",
+      "requires_sources": false,
+      "expected_reply_terms": ["safe"]
+    },
+    {
+      "id": "system-auth-accounts",
+      "category": "Onboarding",
+      "situation": "A user asks about accounts and sign-in.",
+      "selector": "runtime",
+      "perfect_prompt": "Explain the difference between admin and viewer accounts in this app.",
+      "human_prompt": "what's the deal with admin and viewer accounts?",
+      "requires_sources": false,
+      "expected_reply_terms": ["admin"]
+    },
+    {
+      "id": "discovery-latest-upload",
+      "category": "Discovery",
+      "situation": "A user asks what was uploaded last.",
+      "selector": "latest_document",
+      "perfect_prompt": "Which document was uploaded most recently? Return the exact file name.",
+      "human_prompt": "what did i upload last?",
+      "requires_sources": false,
+      "requires_target_name": true
+    },
+    {
+      "id": "discovery-latest-summary",
+      "category": "Discovery",
+      "situation": "A user asks what the newest file is about.",
+      "selector": "latest_document",
+      "perfect_prompt": "Summarize the most recently uploaded document and mention its file name.",
+      "human_prompt": "what's the latest doc about?",
+      "requires_sources": false,
+      "requires_target_name": true
+    },
+    {
+      "id": "discovery-file-inventory",
+      "category": "Discovery",
+      "situation": "A user asks what files exist.",
+      "selector": "inventory",
+      "perfect_prompt": "List the uploaded documents by type and mention useful files for business questions.",
+      "human_prompt": "what kinda files have i uploaded?",
+      "requires_sources": false,
+      "expected_reply_terms": ["uploaded documents"]
+    },
+    {
+      "id": "discovery-find-topic",
+      "category": "Discovery",
+      "situation": "A user searches for a topic without naming a file.",
+      "selector": "topic_document",
+      "perfect_prompt": "Find documents related to \"{topic}\" and explain briefly what the relevant document says.",
+      "human_prompt": "do we have anything about {topic}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "discovery-find-report",
+      "category": "Discovery",
+      "situation": "A user asks for reports in plain language.",
+      "selector": "typed_document",
+      "type_hints": ["report"],
+      "perfect_prompt": "Find a report document and summarize what it reports.",
+      "human_prompt": "do we have any reports?",
+      "requires_sources": true
+    },
+    {
+      "id": "summarize-specific-document",
+      "category": "Summarization",
+      "situation": "A user asks what a named document is about.",
+      "selector": "representative_document",
+      "perfect_prompt": "In the document named \"{document_name}\", what is it mainly about? Include concrete details.",
+      "human_prompt": "what is {short_name} about?",
+      "requires_sources": true,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "summarize-one-sentence",
+      "category": "Summarization",
+      "situation": "A user wants a very short summary.",
+      "selector": "representative_document",
+      "perfect_prompt": "Summarize \"{document_name}\" in one clear sentence.",
+      "human_prompt": "give me the short version of {short_name}",
+      "requires_sources": true,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "summarize-key-points",
+      "category": "Summarization",
+      "situation": "A user asks what matters in a document.",
+      "selector": "representative_document",
+      "perfect_prompt": "Extract the most important dates, numbers, people, organizations, or codes from \"{document_name}\".",
+      "human_prompt": "anything important i should notice in {short_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "summarize-business",
+      "category": "Summarization",
+      "situation": "A user wants a business-oriented summary.",
+      "selector": "representative_document",
+      "perfect_prompt": "Prepare a business-friendly summary of \"{document_name}\" with purpose, key facts, and possible follow-up questions.",
+      "human_prompt": "can you give me the useful business summary of {short_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "summarize-questions-to-ask",
+      "category": "Summarization",
+      "situation": "A user wants suggested follow-up questions.",
+      "selector": "representative_document",
+      "perfect_prompt": "Based on \"{document_name}\", suggest useful follow-up questions a business user should ask.",
+      "human_prompt": "what should i ask next about {short_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "extract-title",
+      "category": "Extraction",
+      "situation": "A user asks for the title.",
+      "selector": "representative_document",
+      "perfect_prompt": "What title appears in \"{document_name}\"?",
+      "human_prompt": "what's the title of {short_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "extract-companies",
+      "category": "Extraction",
+      "situation": "A user asks about organizations or companies.",
+      "selector": "representative_document",
+      "perfect_prompt": "Which companies or organizations are mentioned in \"{document_name}\"?",
+      "human_prompt": "who is mentioned in {short_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "extract-actions",
+      "category": "Extraction",
+      "situation": "A user asks for actions or recommendations.",
+      "selector": "representative_document",
+      "perfect_prompt": "What actions, recommendations, or next steps appear in \"{document_name}\"?",
+      "human_prompt": "is there anything i need to do from {short_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "extract-deadlines",
+      "category": "Extraction",
+      "situation": "A user asks for dates and deadlines.",
+      "selector": "representative_document",
+      "perfect_prompt": "What deadlines, dates, or durations are mentioned in \"{document_name}\"?",
+      "human_prompt": "any dates i should care about in {short_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "extract-risks",
+      "category": "Extraction",
+      "situation": "A user asks for risks.",
+      "selector": "representative_document",
+      "perfect_prompt": "What risks or issues are mentioned in \"{document_name}\"?",
+      "human_prompt": "anything risky in {short_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "ocr-summary",
+      "category": "OCR",
+      "situation": "A user asks about a scanned document.",
+      "selector": "ocr_document",
+      "perfect_prompt": "Summarize the scanned or OCR-read document \"{document_name}\".",
+      "human_prompt": "can you read the scanned PDF {document_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "ocr-key-details",
+      "category": "OCR",
+      "situation": "A user asks for important extracted OCR details.",
+      "selector": "ocr_document",
+      "perfect_prompt": "What key codes, dates, numbers, or incidents appear in the OCR-read document \"{document_name}\"?",
+      "human_prompt": "what important bits can you pull from the scanned PDF {document_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "compare-similar",
+      "category": "Comparison",
+      "situation": "A user asks for similar documents.",
+      "selector": "similar_document",
+      "perfect_prompt": "Find documents that are most similar to \"{document_name}\" and explain why.",
+      "human_prompt": "got anything kinda like {short_name}?",
+      "requires_sources": false
+    },
+    {
+      "id": "compare-two-documents",
+      "category": "Comparison",
+      "situation": "A user asks if two documents are basically the same.",
+      "selector": "document_pair",
+      "perfect_prompt": "Compare \"{document_name}\" with \"{other_document_name}\". Explain what is similar and what is different.",
+      "human_prompt": "are {short_name} and {other_short_name} basically the same or different?",
+      "requires_sources": false
+    },
+    {
+      "id": "compare-changes",
+      "category": "Comparison",
+      "situation": "A user asks what changed between related documents.",
+      "selector": "document_pair",
+      "perfect_prompt": "What changed between \"{document_name}\" and \"{other_document_name}\"?",
+      "human_prompt": "what changed between {short_name} and {other_short_name}?",
+      "requires_sources": false
+    },
+    {
+      "id": "workflow-policy",
+      "category": "Business Workflows",
+      "situation": "A user reviews a policy.",
+      "selector": "typed_document",
+      "type_hints": ["policy"],
+      "perfect_prompt": "Summarize the policy document \"{document_name}\" and list what a business user should follow.",
+      "human_prompt": "what does the policy say i should do?",
+      "requires_sources": false,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "workflow-invoice",
+      "category": "Business Workflows",
+      "situation": "A user reviews invoice or finance data.",
+      "selector": "typed_document",
+      "type_hints": ["invoice", "finance", "csv"],
+      "perfect_prompt": "What amount, invoice number, or financial value is mentioned in \"{document_name}\"?",
+      "human_prompt": "what money info is in {short_name}?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "workflow-agreement",
+      "category": "Business Workflows",
+      "situation": "A user reviews an agreement or contract.",
+      "selector": "typed_document",
+      "type_hints": ["agreement", "contract", "service"],
+      "perfect_prompt": "Summarize the agreement or contract \"{document_name}\" and highlight obligations or terms.",
+      "human_prompt": "what should i know from this contract?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "workflow-incident-report",
+      "category": "Business Workflows",
+      "situation": "A user asks about an incident report.",
+      "selector": "typed_document",
+      "type_hints": ["incident", "report"],
+      "perfect_prompt": "Summarize the incident report \"{document_name}\" with incident, impact, and recommendation.",
+      "human_prompt": "what happened in the incident report?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "workflow-presentation",
+      "category": "Business Workflows",
+      "situation": "A user asks about a presentation.",
+      "selector": "typed_document",
+      "type_hints": ["presentation", "pptx", "roadmap", "briefing"],
+      "perfect_prompt": "Summarize the presentation \"{document_name}\" and mention the main milestone or rollout topic.",
+      "human_prompt": "what's this deck about?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "workflow-code",
+      "category": "Business Workflows",
+      "situation": "A user asks about a code/config file.",
+      "selector": "typed_document",
+      "type_hints": ["code", ".py", ".ts", "function"],
+      "perfect_prompt": "Explain what the code file \"{document_name}\" does and mention important functions.",
+      "human_prompt": "what does this code file do?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "workflow-spreadsheet",
+      "category": "Business Workflows",
+      "situation": "A user asks about spreadsheet values.",
+      "selector": "typed_document",
+      "type_hints": ["spreadsheet", "xlsx", "metrics"],
+      "perfect_prompt": "Summarize the spreadsheet \"{document_name}\" and mention important totals or values.",
+      "human_prompt": "what numbers matter in the spreadsheet?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    },
+    {
+      "id": "followup-that-document",
+      "category": "Follow-up Context",
+      "situation": "A user follows up with 'that one'.",
+      "selector": "representative_document",
+      "setup_prompt": "Find the document named \"{document_name}\".",
+      "perfect_prompt": "After identifying \"{document_name}\", explain what that document is about.",
+      "human_prompt": "and what was that one about?",
+      "requires_sources": true,
+      "min_source_overlap": 0.5
+    },
+    {
+      "id": "followup-actions",
+      "category": "Follow-up Context",
+      "situation": "A user asks for actions from the previously mentioned file.",
+      "selector": "representative_document",
+      "setup_prompt": "Find the document named \"{document_name}\".",
+      "perfect_prompt": "After identifying \"{document_name}\", list any actions or next steps in it.",
+      "human_prompt": "anything i need to do from it?",
+      "requires_sources": false
+    },
+    {
+      "id": "followup-risks",
+      "category": "Follow-up Context",
+      "situation": "A user asks for risks from the current context.",
+      "selector": "representative_document",
+      "setup_prompt": "Find the document named \"{document_name}\".",
+      "perfect_prompt": "After identifying \"{document_name}\", list any risks or issues in it.",
+      "human_prompt": "any risks in that?",
+      "requires_sources": true,
+      "min_source_overlap": 0.4
+    }
+  ]
+}
