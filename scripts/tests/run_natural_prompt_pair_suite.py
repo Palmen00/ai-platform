@@ -438,7 +438,14 @@ def _source_names(payload: dict[str, Any]) -> list[str]:
 
 def _has_fallback(reply: str) -> bool:
     lowered = reply.lower()
-    return any(phrase in lowered for phrase in FALLBACK_PHRASES)
+    for phrase in FALLBACK_PHRASES:
+        if phrase == "as an ai":
+            if re.search(r"\bas an ai(?!-)\b", lowered):
+                return True
+            continue
+        if phrase in lowered:
+            return True
+    return False
 
 
 def _contains_expected_terms(reply: str, terms: list[str]) -> bool:
