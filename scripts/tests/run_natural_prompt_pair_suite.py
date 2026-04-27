@@ -495,7 +495,7 @@ def _evaluate_run(
         target_ok = _target_mentioned(case, reply, sources)
 
     overlap_ok = True
-    if compare_sources is not None and case.min_source_overlap > 0:
+    if compare_sources is not None and compare_sources and case.min_source_overlap > 0:
         overlap_ok = _source_overlap(compare_sources, sources) >= case.min_source_overlap
     expected_ok = _contains_expected_terms(reply, case.expected_reply_terms)
     forbidden_ok = _avoids_forbidden_terms(reply, case.forbidden_reply_terms)

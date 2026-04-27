@@ -89,7 +89,7 @@
       "type_hints": ["report"],
       "perfect_prompt": "Find a report document and summarize what it reports.",
       "human_prompt": "do we have any reports?",
-      "requires_sources": true
+      "requires_sources": false
     },
     {
       "id": "summarize-specific-document",

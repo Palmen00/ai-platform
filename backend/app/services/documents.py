@@ -1897,6 +1897,8 @@ class DocumentService:
 
     def is_document_action_query(self, query: str) -> bool:
         lowered = " ".join(self._strip_accents(query).lower().split())
+        if re.search(r"\bwhat should i know\b", lowered):
+            return False
         markers = (
             "action",
             "actions",
@@ -2120,6 +2122,18 @@ class DocumentService:
                 continue
             normalized = self._normalize_entity_text(candidate)
             if not normalized or not re.search(r"[a-z]", normalized):
+                continue
+            generic_document_reference = re.sub(
+                r"^(?:this|that|these|those|the|a|an|den|det|denna|detta)\s+",
+                "",
+                normalized,
+            )
+            document_type_aliases = {
+                self._normalize_entity_text(alias)
+                for aliases in self.DOCUMENT_TYPE_ALIASES.values()
+                for alias in aliases
+            }
+            if generic_document_reference in document_type_aliases:
                 continue
             if normalized in {"my documents", "mina dokument", "documents", "dokument"}:
                 continue
