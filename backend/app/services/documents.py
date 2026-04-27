@@ -4064,36 +4064,10 @@ class DocumentService:
             return False
         if not summary.line_items:
             return True
-
-        suspicious_markers = (
-            "account number",
-            "account no",
-            "bank",
-            "iban",
-            "swift",
-            "bic",
-            "paypal",
-            "vatin",
-            "seller",
-            "buyer",
-            "signature",
-            "prepayment",
-            "tax rates",
-            "gross value",
-            "net value",
-            "cn code",
-            "kod cn",
-            "country of origin",
-            "based on order",
-        )
-        for item in summary.line_items:
-            haystack = self._strip_accents(
-                f"{item.description} {item.source_line or ''}"
-            ).lower()
-            if any(marker in haystack for marker in suspicious_markers):
-                return True
-
-        return False
+        # Commercial extraction is deterministic and cheap compared with OCR/LLM
+        # work. Re-running it keeps older invoice metadata aligned with parser
+        # improvements without requiring users to re-upload documents.
+        return True
 
     def _needs_background_intelligence_refresh(self, document: DocumentRecord) -> bool:
         if document.processing_status != "processed":
