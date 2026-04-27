@@ -34,6 +34,8 @@ Options:
   --backend-port <p>     Forward backend port to configure phase
   --qdrant-port <p>      Forward Qdrant port to configure phase
   --hostname <value>     Forward hostname/domain to configure phase
+  --public-url-scheme <v>
+                          Forward public URL scheme to configure phase
   --ocr-enabled <yes|no> Forward OCR toggle to configure phase
   --connector-features-enabled <yes|no>
                         Forward connector feature toggle to configure phase
@@ -132,7 +134,7 @@ while [[ $# -gt 0 ]]; do
       configure_args+=("$1")
       shift
       ;;
-    --profile|--ollama-mode|--ollama-base-url|--answer-file|--security-profile|--auth-mode|--admin-username|--admin-password|--admin-password-file|--data-root|--frontend-port|--backend-port|--qdrant-port|--hostname|--ocr-enabled|--connector-features-enabled)
+    --profile|--ollama-mode|--ollama-base-url|--answer-file|--security-profile|--auth-mode|--admin-username|--admin-password|--admin-password-file|--data-root|--frontend-port|--backend-port|--qdrant-port|--hostname|--public-url-scheme|--ocr-enabled|--connector-features-enabled)
       if [[ $# -lt 2 ]]; then
         echo "Missing value for $1" >&2
         exit 1
