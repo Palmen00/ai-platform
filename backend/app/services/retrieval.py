@@ -359,6 +359,17 @@ class RetrievalService:
             if entity_answer:
                 return entity_answer
 
+        if self.document_service.is_document_invoice_facts_query(query):
+            invoice_answer = self.document_service.summarize_document_invoice_facts(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if invoice_answer:
+                return invoice_answer
+
         if self.document_service.is_document_code_function_query(query):
             code_answer = self.document_service.summarize_document_code_functions(
                 query,

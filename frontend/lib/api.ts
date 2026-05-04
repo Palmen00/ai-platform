@@ -208,6 +208,28 @@ export type ConversationResponse = {
   conversation: ConversationDetail;
 };
 
+export type DocumentCommercialLineItem = {
+  description: string;
+  quantity?: number | null;
+  unit_price?: number | null;
+  total?: number | null;
+  currency?: string | null;
+  sku?: string | null;
+  source_line?: string | null;
+  confidence: number;
+};
+
+export type DocumentCommercialSummary = {
+  invoice_number?: string | null;
+  invoice_date?: string | null;
+  due_date?: string | null;
+  subtotal?: number | null;
+  tax?: number | null;
+  total?: number | null;
+  currency?: string | null;
+  line_items: DocumentCommercialLineItem[];
+};
+
 export type DocumentItem = {
   id: string;
   original_name: string;
@@ -237,6 +259,7 @@ export type DocumentItem = {
   document_version_number?: number | null;
   document_topics?: string[];
   document_summary_anchor?: string | null;
+  commercial_summary?: DocumentCommercialSummary | null;
   similarity_profile?: string | null;
   similarity_terms?: string[];
   similar_documents?: DocumentSimilarityMatch[];

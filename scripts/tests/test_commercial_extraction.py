@@ -225,6 +225,30 @@ def test_stacked_invoice_item_block() -> None:
     assert summary.line_items[0].currency == "GBP"
 
 
+def test_pipe_invoice_rows_keep_service_product_name() -> None:
+    service = DocumentProcessingService()
+    text = """
+    Invoice No: PV-2026-118
+    Invoice Date: 2026-04-21
+    Due Date: 2026-05-05
+    Description | SKU | Qty | Unit Price | Line Total
+    Carbon Brake Pads | BRK-CARBON-22 | 3 | 249.50 | 748.50
+    Workshop Tune-up | SERVICE-TUNE | 1 | 805.50 | 805.50
+    Total: 1942.50 SEK
+    """
+
+    summary = service.extract_commercial_summary(text, "invoice-peak-velo.txt", "invoice")
+
+    assert summary is not None
+    assert [item.description for item in summary.line_items] == [
+        "Carbon Brake Pads",
+        "Workshop Tune-up",
+    ]
+    assert summary.line_items[1].sku == "SERVICE-TUNE"
+    _assert_close(summary.line_items[1].quantity, 1)
+    _assert_close(summary.line_items[1].total, 805.5)
+
+
 if __name__ == "__main__":
     test_tabular_invoice_items()
     test_keyed_invoice_item()
@@ -233,4 +257,5 @@ if __name__ == "__main__":
     test_european_thousand_prices_and_ean_rows()
     test_position_invoice_rows_ignore_tariff_metadata()
     test_stacked_invoice_item_block()
+    test_pipe_invoice_rows_keep_service_product_name()
     print("commercial extraction tests passed")

@@ -1164,6 +1164,10 @@ class DocumentProcessingService:
         if not description_match:
             return None
 
+        matched_text = description_match.group(0)
+        if re.fullmatch(r"(?i)service-[A-Z0-9._/-]+", matched_text.strip()):
+            return None
+
         description = self._clean_line_item_description(description_match.group(1))
         quantity = self._extract_labeled_number(line, ("qty", "quantity", "antal"))
         unit_price = self._extract_labeled_money(line, ("unit price", "price", "unit"))
@@ -1407,6 +1411,23 @@ class DocumentProcessingService:
     ) -> tuple[str, float | None, str | None]:
         normalized = " ".join(prefix.split()).strip(" |,;\t")
         sku: str | None = None
+
+        if "|" in normalized:
+            parts = [part.strip() for part in normalized.split("|") if part.strip()]
+            if len(parts) >= 3:
+                quantity = self._extract_trailing_quantity(parts[-1])
+                if quantity is not None:
+                    sku_candidate = parts[-2]
+                    description = " | ".join(parts[:-2])
+                    if re.fullmatch(
+                        r"[A-Z0-9][A-Z0-9._/-]{2,40}",
+                        sku_candidate,
+                        flags=re.IGNORECASE,
+                    ):
+                        sku = sku_candidate
+                    else:
+                        description = " | ".join(parts[:-1])
+                    return description, quantity, sku
 
         unit_match = re.match(
             r"^(?P<description>.+?)\s+(?P<quantity>\d+(?:[.,]\d+)?)\s+"

@@ -1849,6 +1849,30 @@ class DocumentService:
         )
         return any(marker in lowered for marker in product_markers)
 
+    def is_document_invoice_facts_query(self, query: str) -> bool:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        fact_markers = (
+            "invoice number",
+            "invoice no",
+            "invoice date",
+            "due date",
+            "subtotal",
+            "tax",
+            "total",
+            "amount",
+            "fakturanummer",
+            "fakturadatum",
+            "forfallodatum",
+            "summa",
+            "moms",
+        )
+        has_invoice_context = (
+            "invoice" in lowered
+            or "faktura" in lowered
+            or self.extract_requested_document_type(query) in {"invoice", "receipt", "quote"}
+        )
+        return has_invoice_context and any(marker in lowered for marker in fact_markers)
+
     def is_document_code_function_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
         if "function" not in lowered:
@@ -2695,6 +2719,77 @@ class DocumentService:
                 return self._summarize_products_for_documents(matching_documents)
 
         return None
+
+    def summarize_document_invoice_facts(
+        self,
+        query: str,
+        *,
+        history: list[ChatHistoryMessage] | None = None,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        document = self.resolve_primary_document(
+            query,
+            history=history,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if document is None:
+            matching_documents = self.find_documents_by_metadata(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            document = matching_documents[0] if matching_documents else None
+        if document is None:
+            return None
+
+        summary = self._coerce_commercial_summary(document.commercial_summary)
+        if not summary:
+            return None
+
+        details: list[str] = []
+        if summary.invoice_number:
+            details.append(f"invoice number {summary.invoice_number}")
+        if summary.invoice_date:
+            details.append(f"invoice date {summary.invoice_date}")
+        if summary.due_date:
+            details.append(f"due date {summary.due_date}")
+        if summary.subtotal is not None:
+            details.append(
+                "subtotal "
+                + self._format_commercial_money(summary.subtotal, summary.currency)
+            )
+        if summary.tax is not None:
+            details.append(
+                "tax "
+                + self._format_commercial_money(summary.tax, summary.currency)
+            )
+        if summary.total is not None:
+            details.append(
+                "total "
+                + self._format_commercial_money(summary.total, summary.currency)
+            )
+        if not details:
+            return None
+
+        product_names = [
+            item.description
+            for item in summary.line_items[:4]
+            if item.description
+        ]
+        product_suffix = (
+            f" Extracted items include {self._join_phrases(product_names)}."
+            if product_names
+            else ""
+        )
+        return (
+            f"The invoice details in {document.original_name} are: "
+            f"{'; '.join(details)}.{product_suffix}"
+        )
 
     def summarize_document_code_functions(
         self,

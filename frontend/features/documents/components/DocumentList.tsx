@@ -140,6 +140,43 @@ function formatDocumentSignals(values?: { value: string }[]) {
   return values.slice(0, 3).map((item) => item.value).join(", ");
 }
 
+function formatCommercialNumber(value?: number | null) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatCommercialMoney(value?: number | null, currency?: string | null) {
+  const formatted = formatCommercialNumber(value);
+  if (!formatted) {
+    return "";
+  }
+
+  return currency ? `${formatted} ${currency}` : formatted;
+}
+
+function formatCommercialSummary(document: DocumentItem) {
+  const summary = document.commercial_summary;
+  if (!summary) {
+    return "";
+  }
+
+  const firstItem = summary.line_items?.[0]?.description;
+  const details = [
+    summary.invoice_number ? `Invoice ${summary.invoice_number}` : "",
+    summary.total !== undefined && summary.total !== null
+      ? formatCommercialMoney(summary.total, summary.currency)
+      : "",
+    firstItem ? `Item: ${firstItem}` : "",
+  ].filter(Boolean);
+
+  return details.join(" / ");
+}
+
 function getStageLabel(stage?: string) {
   switch (stage) {
     case "queued":
@@ -505,6 +542,11 @@ export function DocumentList({
                   {document.document_signals && document.document_signals.length > 0 && (
                     <div className="mt-1 max-w-xs truncate text-[11px] text-slate-400">
                       {formatDocumentSignals(document.document_signals)}
+                    </div>
+                  )}
+                  {formatCommercialSummary(document) && (
+                    <div className="mt-1 max-w-xs truncate text-[11px] font-medium text-slate-500">
+                      {formatCommercialSummary(document)}
                     </div>
                   )}
                   {(document.document_family_label ||

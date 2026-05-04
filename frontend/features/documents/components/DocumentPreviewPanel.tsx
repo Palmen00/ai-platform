@@ -108,6 +108,25 @@ function formatDocumentEntities(values?: string[]) {
   return values.join(", ");
 }
 
+function formatCommercialNumber(value?: number | null) {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return "";
+  }
+
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function formatCommercialMoney(value?: number | null, currency?: string | null) {
+  const formatted = formatCommercialNumber(value);
+  if (!formatted) {
+    return "";
+  }
+
+  return currency ? `${formatted} ${currency}` : formatted;
+}
+
 function buildDocumentIntelligencePoints(document: DocumentPreview["document"]) {
   return [
     {
@@ -198,6 +217,8 @@ export function DocumentPreviewPanel({
     : [];
   const documentTopics = preview?.document.document_topics?.slice(0, 6) ?? [];
   const similarDocuments = preview?.document.similar_documents?.slice(0, 4) ?? [];
+  const commercialSummary = preview?.document.commercial_summary ?? null;
+  const visibleCommercialItems = commercialSummary?.line_items?.slice(0, 8) ?? [];
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end bg-slate-950/30 backdrop-blur-[2px]">
@@ -339,6 +360,115 @@ export function DocumentPreviewPanel({
                   </div>
                 </div>
               </section>
+
+              {commercialSummary && (
+                <section className="rounded-2xl border border-slate-200 bg-white px-4 py-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-400">
+                      Commercial details
+                    </h4>
+                    {commercialSummary.total !== undefined &&
+                      commercialSummary.total !== null && (
+                        <span className="rounded-full bg-slate-950 px-3 py-1 text-xs font-semibold text-white">
+                          {formatCommercialMoney(
+                            commercialSummary.total,
+                            commercialSummary.currency
+                          )}
+                        </span>
+                      )}
+                  </div>
+
+                  <div className="mt-3 grid gap-x-4 gap-y-3 sm:grid-cols-3">
+                    {[
+                      ["Invoice", commercialSummary.invoice_number],
+                      ["Invoice date", commercialSummary.invoice_date],
+                      ["Due date", commercialSummary.due_date],
+                      [
+                        "Subtotal",
+                        formatCommercialMoney(
+                          commercialSummary.subtotal,
+                          commercialSummary.currency
+                        ),
+                      ],
+                      [
+                        "Tax",
+                        formatCommercialMoney(
+                          commercialSummary.tax,
+                          commercialSummary.currency
+                        ),
+                      ],
+                      [
+                        "Total",
+                        formatCommercialMoney(
+                          commercialSummary.total,
+                          commercialSummary.currency
+                        ),
+                      ],
+                    ]
+                      .filter((item) => item[1])
+                      .map(([label, value]) => (
+                        <div key={label} className="min-w-0">
+                          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                            {label}
+                          </div>
+                          <div className="mt-1 truncate text-sm text-slate-700">
+                            {value}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+
+                  {visibleCommercialItems.length > 0 && (
+                    <div className="mt-4 overflow-x-auto">
+                      <table className="w-full min-w-[34rem] text-left text-sm">
+                        <thead>
+                          <tr className="border-b border-slate-100 text-[11px] uppercase tracking-[0.14em] text-slate-400">
+                            <th className="py-2 pr-3 font-semibold">Item</th>
+                            <th className="py-2 pr-3 font-semibold">Qty</th>
+                            <th className="py-2 pr-3 font-semibold">Unit</th>
+                            <th className="py-2 pr-3 font-semibold">Total</th>
+                            <th className="py-2 font-semibold">SKU</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {visibleCommercialItems.map((item, index) => (
+                            <tr key={`${item.description}-${index}`}>
+                              <td className="max-w-xs py-2 pr-3 text-slate-800">
+                                <div className="truncate">{item.description}</div>
+                              </td>
+                              <td className="py-2 pr-3 text-slate-600">
+                                {formatCommercialNumber(item.quantity)}
+                              </td>
+                              <td className="py-2 pr-3 text-slate-600">
+                                {formatCommercialMoney(
+                                  item.unit_price,
+                                  item.currency ?? commercialSummary.currency
+                                )}
+                              </td>
+                              <td className="py-2 pr-3 text-slate-600">
+                                {formatCommercialMoney(
+                                  item.total,
+                                  item.currency ?? commercialSummary.currency
+                                )}
+                              </td>
+                              <td className="py-2 text-xs text-slate-500">
+                                {item.sku ?? ""}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {(commercialSummary.line_items?.length ?? 0) >
+                        visibleCommercialItems.length && (
+                        <div className="mt-2 text-xs text-slate-500">
+                          Showing {visibleCommercialItems.length} of{" "}
+                          {commercialSummary.line_items?.length ?? 0} extracted items.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </section>
+              )}
 
               {(intelligencePoints.length > 0 ||
                 documentTopics.length > 0 ||
