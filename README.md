@@ -26,16 +26,16 @@ The PDF files in `Docs/` are kept as legacy source material, but the `.md` files
 For a fresh Ubuntu server install, use the current release candidate:
 
 ```bash
-curl -fsSL -o install-local-ai-os.sh https://raw.githubusercontent.com/Palmen00/ai-platform/v0.1.0-rc2/scripts/deploy/bootstrap-from-web.sh
+curl -fsSL -o install-local-ai-os.sh https://raw.githubusercontent.com/Palmen00/ai-platform/v0.1.0-rc3/scripts/deploy/bootstrap-from-web.sh
 chmod +x install-local-ai-os.sh
-./install-local-ai-os.sh --ref v0.1.0-rc2
+./install-local-ai-os.sh --ref v0.1.0-rc3
 ```
 
 For an unattended install, create an answer file and pass it through `--installer-args`:
 
 ```bash
 ./install-local-ai-os.sh \
-  --ref v0.1.0-rc2 \
+  --ref v0.1.0-rc3 \
   --installer-args '--skip-bootstrap --non-interactive --answer-file /path/to/local-ai-os-answer.env'
 ```
 
@@ -43,7 +43,7 @@ The Ubuntu installer writes `.env.ubuntu` with `chmod 600`, stores data under th
 
 For local test installs only, the temporary bootstrap account can be `Admin` / `password`. Production installs should always pass a strong password through `ADMIN_PASSWORD_FILE` or the interactive prompt, never commit it to an answer file.
 
-See [v0.1.0-rc2 release notes](Docs/release-notes-v0.1.0-rc2.md) for what has been verified and what remains before a final beta release.
+See [v0.1.0-rc3 release notes](Docs/release-notes-v0.1.0-rc3.md) for what has been verified and what remains before a final beta release.
 
 ## Local Development Setup
 

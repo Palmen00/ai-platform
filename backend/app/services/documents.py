@@ -93,6 +93,7 @@ class DocumentService:
     def __init__(self) -> None:
         self.uploads_dir = settings.uploads_dir
         self.metadata_dir = settings.documents_metadata_dir
+        self.deleted_metadata_dir = self.metadata_dir / ".deleted"
         self.chunks_dir = settings.document_chunks_dir
         self.extracted_text_dir = settings.document_extracted_text_dir
         self.processing_service = DocumentProcessingService()
@@ -633,6 +634,9 @@ class DocumentService:
         return created, "imported"
 
     def get_document(self, document_id: str) -> DocumentRecord | None:
+        if self._is_document_deleted(document_id):
+            return None
+
         metadata_path = self._metadata_path(document_id)
         if not metadata_path.exists():
             return None
@@ -844,6 +848,9 @@ class DocumentService:
         )
 
     def process_document(self, document_id: str) -> DocumentRecord:
+        if self._is_document_deleted(document_id):
+            raise FileNotFoundError(f"Document {document_id} not found")
+
         document = self.get_document(document_id)
         if document is None:
             raise FileNotFoundError(f"Document {document_id} not found")
@@ -1041,6 +1048,14 @@ class DocumentService:
         finally:
             activity_service.end_job("document_processing")
 
+        if self._is_document_deleted(document.id):
+            self._remove_processing_artifacts(document.id)
+            try:
+                self.vector_store.remove_document_chunks(document.id)
+            except Exception:
+                pass
+            return document
+
         self._write_metadata(document)
         return document
 
@@ -1168,6 +1183,7 @@ class DocumentService:
         if document is None:
             return False
 
+        self._mark_document_deleted(document_id)
         metadata_path = self._metadata_path(document_id)
         file_path = self.uploads_dir / document.stored_name
         if file_path.exists():
@@ -1178,7 +1194,7 @@ class DocumentService:
             self.vector_store.remove_document_chunks(document_id)
         except Exception:
             pass
-        metadata_path.unlink()
+        metadata_path.unlink(missing_ok=True)
         return True
 
     def retry_incomplete_documents(self) -> list[DocumentRecord]:
@@ -3705,6 +3721,9 @@ class DocumentService:
         return (score, document.uploaded_at or "")
 
     def _write_metadata(self, document: DocumentRecord) -> None:
+        if self._is_document_deleted(document.id):
+            return
+
         metadata_path = self._metadata_path(document.id)
         self._write_json_atomic(metadata_path, document.model_dump())
 
@@ -4222,6 +4241,17 @@ class DocumentService:
 
     def _metadata_path(self, document_id: str) -> Path:
         return self.metadata_dir / f"{document_id}.json"
+
+    def _deletion_marker_path(self, document_id: str) -> Path:
+        return self.deleted_metadata_dir / f"{document_id}.deleted"
+
+    def _mark_document_deleted(self, document_id: str) -> None:
+        self.deleted_metadata_dir.mkdir(parents=True, exist_ok=True)
+        marker_path = self._deletion_marker_path(document_id)
+        marker_path.write_text(datetime.now(UTC).isoformat(), encoding="utf-8")
+
+    def _is_document_deleted(self, document_id: str) -> bool:
+        return self._deletion_marker_path(document_id).exists()
 
     def _store_document_file(
         self,
