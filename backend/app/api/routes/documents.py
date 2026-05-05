@@ -149,6 +149,11 @@ def upload_document(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    warnings = document_service.build_upload_warnings(
+        document,
+        is_admin=True,
+        viewer_username=session.username if session else None,
+    )
     document = document_service.queue_document_processing(document.id)
     background_tasks.add_task(document_service.process_document, document.id)
     log_event(
@@ -161,8 +166,10 @@ def upload_document(
         processing_status=document.processing_status,
         processing_stage=document.processing_stage,
         indexing_status=document.indexing_status or "pending",
+        upload_warning_count=len(warnings),
+        duplicate_match_count=sum(len(warning.matches) for warning in warnings),
     )
-    return DocumentUploadResponse(document=document)
+    return DocumentUploadResponse(document=document, warnings=warnings)
 
 
 @router.post("/{document_id}/process", response_model=DocumentProcessResponse)

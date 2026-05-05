@@ -16,10 +16,12 @@ class AuthStatusResponse(BaseModel):
 class LoginRequest(BaseModel):
     username: str = "admin"
     password: str
+    remember_me: bool = False
 
 
 class LoginResponse(BaseModel):
     expires_at: str
+    remember_me: bool = False
     auth_enabled: bool
     auth_configured: bool
     authenticated: bool = True

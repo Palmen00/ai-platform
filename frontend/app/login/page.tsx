@@ -27,6 +27,7 @@ function LoginPageContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [username, setUsername] = useState("Admin");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -65,7 +66,7 @@ function LoginPageContent() {
     setIsSubmitting(true);
 
     try {
-      await loginUser(username, password);
+      await loginUser(username, password, rememberMe);
       window.dispatchEvent(new Event(AUTH_UPDATED_EVENT));
       router.replace(nextPath);
     } catch (error) {
@@ -208,6 +209,23 @@ function LoginPageContent() {
               placeholder="Enter password"
               className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800 outline-none focus:border-slate-400"
             />
+          </label>
+
+          <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={rememberMe}
+              onChange={(event) => setRememberMe(event.target.checked)}
+              className="mt-0.5 h-4 w-4 rounded border-slate-300 text-slate-950 focus:ring-slate-400"
+            />
+            <span>
+              <span className="block font-medium text-slate-800">
+                Remember me
+              </span>
+              <span className="mt-1 block text-xs leading-5 text-slate-500">
+                Keep this browser signed in for longer. Leave off on shared machines.
+              </span>
+            </span>
           </label>
 
           <div className="mt-4 flex justify-between gap-2">

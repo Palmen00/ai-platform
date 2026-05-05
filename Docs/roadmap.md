@@ -1,5 +1,34 @@
 # Roadmap
 
+## Project Status - May 5, 2026
+
+Status: MVP hardening on a real Linux server.
+
+The project has moved beyond local-only prototyping. The current live server at
+`192.168.1.105` is running the Docker deployment with backend, frontend, Qdrant,
+Ollama connectivity, auth, document upload, OCR/indexing, saved chats, and
+retrieval over a realistic document library.
+
+Current live baseline:
+
+- backend health: `ok`
+- Ollama: `ok`
+- Qdrant: `ok`
+- uploaded documents: `143`
+- processed/indexed documents: `142 / 142`
+- failed documents: `0`
+- known pending item: `Google cert.pdf` is still pending/indexing
+- full live conversation suite before the final Swedish/natural-language patch: `26/30`
+- focused live regression after the final retrieval patch: `8/8`
+- live regression after source workflow, invoice-intelligence, and Writing
+  workspace work: `12/12`
+
+Important current caveat:
+
+- the latest fixes are applied locally and deployed to the server, but still need
+  to be committed and pushed before they are safely part of the GitHub install
+  path
+
 ## Phase 1: Foundation
 
 Status: mostly complete
@@ -24,7 +53,7 @@ Status: largely complete in development
 
 ## Phase 3: Knowledge Layer
 
-Status: implemented and now in refinement
+Status: implemented and now in real-library refinement
 
 - Add file upload
 - Add text extraction and ingestion pipeline
@@ -33,7 +62,7 @@ Status: implemented and now in refinement
 
 ## Phase 4: Make It Reliable
 
-Status: active current phase
+Status: active current phase, now validated against the live server
 
 - Improve answer quality and retrieval behavior
 - Tighten UX around failures, loading states, and empty states
@@ -62,11 +91,17 @@ Only after the core workflow is stable:
 
 ### Now
 
-- improve answer quality and grounded response quality
-- improve retrieval ranking and source shaping
-- improve backup, export, cleanup, and recovery confidence
-- tighten Ubuntu deployment and operational documentation
-- define the first Linux server installer/bootstrap scope so a new server can reach a stable LLM deployment with minimal manual setup
+- commit and push the latest deployed retrieval, duplicate-upload, and Knowledge UI fixes
+- re-run the link-install/update path from GitHub after the push so a fresh server receives the same fixes
+- clear or retry the one pending live document: `Google cert.pdf`
+- keep improving answer quality on natural business questions across invoices, receipts, contracts, and mixed document libraries
+- validate the new document-based draft helpers on real incident, support, and customer-email scenarios
+- keep evolving the first Writing workspace from chat templates into a clearer
+  report/email drafting workflow if the real incident/customer tests keep
+  passing
+- keep tightening retrieval ranking, source shaping, and follow-up behavior
+- keep improving backup, export, cleanup, and recovery confidence on the live server
+- document the server-update flow so deploys do not depend on manual patch copying
 
 ## Reliability Track For Large Document Sets
 
@@ -99,6 +134,16 @@ Progress now includes:
 - local prototype track for LLM-driven document profiles so Ollama can be tested as a metadata-enrichment layer before any runtime integration
 - first cautious `GLiNER` enrichment is now available behind configuration so we can improve entities incrementally without replacing the existing extraction path all at once
 - retrieval now starts benefiting from those richer signals as well, but bulk backfill of old metadata remains explicit rather than automatic so large libraries do not stall during normal browsing
+- retrieval now also handles common natural-language business questions over real invoices better, including:
+  - latest uploaded document
+  - Swedish invoice-company inventory prompts
+  - totals and amounts across invoices
+  - ordered products/services across invoice-like documents
+  - bike-related purchase searches
+  - follow-up questions about the latest referenced document
+- invoice intelligence now also supports highest/lowest invoice questions,
+  cleaner bullet-list output for multi-invoice/product answers, and line-item
+  total fallback when parsed invoice totals are incomplete
 - a representative `Unstructured` structure-eval suite now exists so title and section extraction can be measured before we adopt any new partitioning path
 - current `Unstructured` prototype results suggest the likely adoption target is PDF-heavy documents first, not structured `.txt` business documents where the in-house section logic currently performs better
 - the latest split `Unstructured` benchmark keeps reinforcing that: the PDF-focused suite is promising enough to keep exploring, while the structured-text suite remains clearly worse than the in-house parser
@@ -128,12 +173,28 @@ Progress now includes:
 - add stronger reranking and source filtering
 - reduce weak or redundant supporting sources
 
+Status: active and materially improved on the live server.
+
+- metadata-backed direct answers now attach sources instead of returning source-less answers
+- invoice/product/date/company questions route through document metadata before falling back to broad generation
+- Swedish/natural prompts that previously produced "no access to invoices" are now covered by focused regression tests
+- remaining work is to reduce noisy broad answers, improve source selection quality, and make latency more predictable
+
 ### Phase C: Better Answer Synthesis
 
 - make answers summarize the important result first
 - merge overlapping evidence from multiple documents more cleanly
 - keep answers natural for both technical and non-technical users
 - make uncertainty and conflicting evidence explicit when needed
+
+Status: first writing-assistant path started.
+
+- chat now has draft-helper prompts for customer email, incident report, management summary, and action plan
+- these helpers deliberately use the existing document-retrieval layer first, so we can validate answer quality before creating a separate report-writing module
+- chat now has a first Writing workspace selector in the composer, so users can
+  choose report/email/action-plan output types without manually crafting the
+  whole prompt
+- next decision is whether this remains a lightweight chat helper or becomes a dedicated Writing/Reports workspace
 
 ### Phase D: Evaluation And Reliability Checks
 
@@ -148,12 +209,22 @@ Status: started
 - OCR and document-disambiguation hard suite now exists in the repo
 - reply-quality suite now exists for natural document and OCR answers
 - broader document-coverage suite now exists for invoice, roadmap, current-features, OCR, and operating-environment questions
+- live conversation/system check now exists for the deployed AI server
+- focused live regression now exists for natural invoice, amount, latest-upload, follow-up, and prompt-injection cases
+- live regression now also covers auth remember-me, source-scoped chat,
+  duplicate-upload warnings, invoice extremes, invoice follow-up dates, and
+  general coding questions staying out of document mode
 - next step is to keep growing those suites across more document types, negative cases, and business-style answer checks
 
 ### Next
 
+- commit and push the current deployed code before further feature work
+- verify that the public GitHub install/update path can reproduce the current server state
+- add a safe "retry pending document" operator flow for stuck processing/indexing cases
+- keep the live duplicate-upload smoke test in the standard pre-push suite
+- expand the live conversation suite with more invoice/product/date questions from the real uploaded library
+- add a clearer regression threshold so we can say when a build is good enough to release
 - formalize install order, dependency inventory, and setup validation before deeper setup automation
-- turn the current Ubuntu deployment lane into an installer-oriented bootstrap flow for blank servers
 - compare `Unstructured` and `GLiNER` against more real document categories before replacing parts of the current pipeline
 - keep `Unstructured` focused on PDF-structure evaluation first, because the current mixed suite already shows it is weaker than the in-house parser on structured `.txt` business documents
 - add light automation such as watch-folder ingest or safer background retries

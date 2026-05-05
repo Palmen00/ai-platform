@@ -41,6 +41,7 @@ function KnowledgePageContent() {
     hasActiveProcessing,
     error,
     statusMessage,
+    uploadWarnings,
     preview,
     previewError,
     isPreviewLoading,
@@ -263,6 +264,36 @@ function KnowledgePageContent() {
             }`}
           >
             {error || statusMessage}
+          </div>
+        )}
+
+        {uploadWarnings.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
+            <div className="font-semibold">
+              {siteConfig.knowledge.messages.duplicateUploadTitle}
+            </div>
+            <p className="mt-1 text-amber-800">
+              {siteConfig.knowledge.messages.duplicateUploadHint}
+            </p>
+            <div className="mt-3 space-y-2">
+              {uploadWarnings.slice(0, 4).map((warning, index) => (
+                <div
+                  key={`${warning.type}-${index}`}
+                  className="rounded-xl border border-amber-200/80 bg-white/70 px-3 py-2"
+                >
+                  <div>{warning.message}</div>
+                  {warning.matches.length > 0 && (
+                    <div className="mt-1 text-xs text-amber-700">
+                      Matches:{" "}
+                      {warning.matches
+                        .slice(0, 3)
+                        .map((match) => match.document_name)
+                        .join(", ")}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         )}
 

@@ -231,6 +231,10 @@ class Settings:
             1,
             int(os.getenv("ADMIN_SESSION_TTL_HOURS", "12")),
         )
+        self.admin_remember_me_ttl_days = max(
+            1,
+            int(os.getenv("ADMIN_REMEMBER_ME_TTL_DAYS", "30")),
+        )
         self.admin_login_max_attempts = max(
             1,
             int(os.getenv("ADMIN_LOGIN_MAX_ATTEMPTS", "5")),

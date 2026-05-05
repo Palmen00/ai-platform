@@ -43,6 +43,7 @@ export type AuthStatusResponse = {
 
 export type LoginResponse = {
   expires_at: string;
+  remember_me?: boolean;
   auth_enabled: boolean;
   auth_configured: boolean;
   authenticated: boolean;
@@ -236,6 +237,7 @@ export type DocumentItem = {
   stored_name: string;
   content_type: string;
   size_bytes: number;
+  content_sha256?: string | null;
   uploaded_at: string;
   source_origin: string;
   source_provider?: string | null;
@@ -296,6 +298,25 @@ export type DocumentsResponse = {
   available_sources: string[];
   available_type_facets: DocumentFacetOption[];
   available_source_facets: DocumentFacetOption[];
+};
+
+export type DocumentDuplicateMatch = {
+  document_id: string;
+  document_name: string;
+  match_type: string;
+  confidence: string;
+  reason?: string | null;
+};
+
+export type DocumentUploadWarning = {
+  type: string;
+  message: string;
+  matches: DocumentDuplicateMatch[];
+};
+
+export type DocumentUploadResult = {
+  document: DocumentItem;
+  warnings: DocumentUploadWarning[];
 };
 
 export type ConnectorManifest = {
@@ -604,7 +625,8 @@ export async function getAuthStatus(): Promise<AuthStatusResponse> {
 
 export async function loginUser(
   username: string,
-  password: string
+  password: string,
+  rememberMe = false
 ): Promise<AuthStatusResponse> {
   const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: "POST",
@@ -612,7 +634,7 @@ export async function loginUser(
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ username, password }),
+    body: JSON.stringify({ username, password, remember_me: rememberMe }),
   });
 
   if (!response.ok) {
@@ -1136,7 +1158,9 @@ export async function getLogs(options?: {
   return response.json();
 }
 
-export async function uploadDocument(file: File): Promise<DocumentItem> {
+export async function uploadDocumentWithWarnings(
+  file: File
+): Promise<DocumentUploadResult> {
   const formData = new FormData();
   formData.append("file", file);
 
@@ -1156,7 +1180,18 @@ export async function uploadDocument(file: File): Promise<DocumentItem> {
     throw new Error(detail || "Failed to upload document");
   }
 
-  const payload = (await response.json()) as { document: DocumentItem };
+  const payload = (await response.json()) as {
+    document: DocumentItem;
+    warnings?: DocumentUploadWarning[];
+  };
+  return {
+    document: payload.document,
+    warnings: payload.warnings ?? [],
+  };
+}
+
+export async function uploadDocument(file: File): Promise<DocumentItem> {
+  const payload = await uploadDocumentWithWarnings(file);
   return payload.document;
 }
 

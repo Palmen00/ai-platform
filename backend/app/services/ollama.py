@@ -160,6 +160,12 @@ class OllamaService:
                 " disagreement only if it matters."
             ),
             (
+                "Formatting: If the answer lists several invoices, products, tasks,"
+                " risks, decisions, or documents, prefer compact bullet points or a"
+                " small table-like list over a long sentence. Group repeated facts by"
+                " document name when that makes the answer easier to scan."
+            ),
+            (
                 "If a passage looks OCR-derived or slightly noisy, do not mirror the"
                 " broken wording. Paraphrase the likely meaning conservatively into"
                 " normal language, and only mention uncertainty when the wording is"

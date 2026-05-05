@@ -103,8 +103,14 @@ class AuthService:
         session = self.validate_session_token(token)
         return session is not None and session.is_admin
 
-    def issue_session_token(self, user: LocalUserRecord) -> tuple[str, datetime]:
-        expires_at = datetime.now(UTC) + timedelta(hours=settings.admin_session_ttl_hours)
+    def issue_session_token(
+        self,
+        user: LocalUserRecord,
+        *,
+        ttl: timedelta | None = None,
+    ) -> tuple[str, datetime]:
+        session_ttl = ttl or timedelta(hours=settings.admin_session_ttl_hours)
+        expires_at = datetime.now(UTC) + session_ttl
         payload = {
             "sub": user.id,
             "username": user.username,
@@ -127,6 +133,7 @@ class AuthService:
         *,
         token: str,
         expires_at: datetime,
+        max_age_seconds: int,
     ) -> None:
         response.set_cookie(
             key=settings.admin_session_cookie_name,
@@ -135,7 +142,7 @@ class AuthService:
             secure=settings.admin_session_cookie_secure,
             samesite=settings.admin_session_cookie_samesite,
             expires=int(expires_at.timestamp()),
-            max_age=settings.admin_session_ttl_hours * 60 * 60,
+            max_age=max_age_seconds,
             path="/",
         )
 

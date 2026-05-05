@@ -1,6 +1,9 @@
+from datetime import timedelta
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from app.schemas.auth import AuthStatusResponse, LoginRequest, LoginResponse
+from app.config import settings
 from app.schemas.user import UserCreateRequest, UserListResponse, UserResponse, UserUpdateRequest
 from app.services.auth import (
     auth_service,
@@ -70,11 +73,17 @@ def login(payload: LoginRequest, request: Request, response: Response) -> LoginR
         raise HTTPException(status_code=401, detail=GENERIC_LOGIN_ERROR)
 
     user = result.user
-    token, expires_at = auth_service.issue_session_token(user)
+    session_ttl = (
+        timedelta(days=settings.admin_remember_me_ttl_days)
+        if payload.remember_me
+        else timedelta(hours=settings.admin_session_ttl_hours)
+    )
+    token, expires_at = auth_service.issue_session_token(user, ttl=session_ttl)
     auth_service.set_admin_session_cookie(
         response,
         token=token,
         expires_at=expires_at,
+        max_age_seconds=int(session_ttl.total_seconds()),
     )
     auth_service.user_service.record_login(user.id)
     log_event(
@@ -84,10 +93,12 @@ def login(payload: LoginRequest, request: Request, response: Response) -> LoginR
         actor_user_id=user.id,
         actor_username=user.username,
         actor_role=user.role,
+        remember_me=payload.remember_me,
         client_ip=client_ip or "unknown",
     )
     return LoginResponse(
         expires_at=expires_at.isoformat(),
+        remember_me=payload.remember_me,
         auth_enabled=auth_service.auth_enabled,
         auth_configured=auth_service.auth_configured,
         authenticated=True,

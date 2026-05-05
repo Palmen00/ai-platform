@@ -1,5 +1,31 @@
 # Current Features
 
+## Current Live Status - May 5, 2026
+
+The project is currently in live-server MVP hardening.
+
+The deployed server is reachable and healthy with:
+
+- backend status: `ok`
+- Ollama status: `ok`
+- Qdrant status: `ok`
+- uploaded documents: `143`
+- processed/indexed documents: `142 / 142`
+- failed documents: `0`
+- one known pending document: `Google cert.pdf`
+
+Latest live conversation checks:
+
+- broad live conversation suite: `26/30`
+- focused regression after retrieval fixes: `8/8`
+- live auth/source/invoice/upload regression after source workflow and invoice
+  improvements: `12/12`
+
+Current source of truth caveat:
+
+- the latest fixes are deployed to the server and present locally, but still need
+  to be committed and pushed so future GitHub installs/updates include them
+
 ## Implemented
 
 ### Chat
@@ -10,6 +36,16 @@
 - Retrieval-backed answers with visible sources and retrieval debug
 - Document scoping so a chat can be limited to selected files
 - Source preview directly inside the chat flow
+- Account-aware chat persistence is in place so saved conversations are tied to the logged-in user context
+- Optional "Remember me" login keeps a browser signed in for the configured long-session window instead of only the standard short admin session
+- Retrieval now handles common business-document questions more naturally across invoices and uploaded documents, including Swedish natural prompts for companies, products, amounts, latest uploads, and follow-up questions
+- Chat now includes first-pass draft helpers for customer email, incident report, management summary, and action plan prompts that use uploaded documents as source material
+- The chat composer now has a first "Writing workspace" selector so report,
+  customer-email, management-summary, and action-plan templates are easier to
+  choose than raw prompt buttons alone
+- Chat sources can now be opened, previewed, used as a direct question scope,
+  or used as the starting point for a comparison against selected/similar
+  sources
 
 ### Knowledge
 
@@ -21,11 +57,17 @@
 - Automatic document-date detection so knowledge files can be searched, filtered, and sorted by document date instead of upload date alone
 - Automatic company/entity detection for documents such as invoices so questions like supplier-specific invoice searches can be answered from metadata
 - Automatic invoice/order detail extraction for product or service lines, quantities, prices, totals, invoice numbers, invoice dates, and due dates when the extracted text exposes those fields
+- Commercial summaries now support broader invoice-style answers across many documents, including supplier, invoice number/date, due date, total, and extracted line items when available
+- Invoice answers now also cover highest/lowest invoice-style questions from
+  commercial metadata, use bullet lists for multi-invoice/product answers, and
+  fall back to line-item totals when a parsed invoice has line items but no
+  reliable top-level total
 - Weighted document signal extraction for names, entities, titles, sections, and recurring terms
 - Embeddings plus Qdrant indexing
 - Reprocess and retry indexing actions
 - Search, filter, sort, and preview for uploaded documents
 - Focused preview for chunks used in answers
+- Duplicate-upload warning support now exists in the upload response and Knowledge UI, using file content hashes first and filename/size similarity as fallback
 - Server-side pagination, filter, sort, and facet counts for the Knowledge list so larger libraries do not force the browser to do all document work client-side
 - Clickable total file count in Knowledge with a file-type breakdown modal
 - Hidden-document support as a first security boundary:
@@ -83,6 +125,8 @@
 - Reply-quality eval suite for natural document and OCR answers
 - Broader document-coverage eval suite across invoice, roadmap, current-features, OCR, and operating-environment documents
 - Synthetic business-document eval suite across invoices, contracts, policies, quotes, and incident reports
+- Live conversation/system report for the deployed AI server
+- Focused live regression for latest-upload, Swedish invoice/company prompts, amounts, ordered products, bike-related purchases, follow-up questions, and prompt-injection handling
 - Synthetic SharePoint-style Office and code suite now goes `15/15`, including direct content questions for `docx`, `xlsx`, and `pptx`
 - Connector routing now supports both SharePoint and Google Drive as named providers behind the same `/connectors/{id}/sync` contract, while local/manual mode remains the easiest way to prototype either provider before live credentials are available
 - The SharePoint mock connector path has now also been verified live on the deployed server across browse, preview sync, real sync, document preview, and chat grounding for `docx`, `xlsx`, `pptx`, and scanned `pdf`
@@ -110,6 +154,10 @@
 - `Knowledge` now records the OCR engine used per processed PDF so we can inspect whether a document was read through native text, `Tesseract`, or `OCRmyPDF`
 - `GLiNER` can now be enabled as a cautious entity-enrichment layer during document processing, improving company, organization, and project extraction while existing heuristics remain as fallback
 - Retrieval now uses the richer document signal layer more actively, so company names and project names can steer document selection even when they are not matched only by raw excerpt text
+- Direct metadata-backed answers now keep supporting sources, so answers such as "latest uploaded document", "which invoices", and "which companies appear in invoices" do not become source-less replies
+- General coding questions no longer enter document mode just because the user
+  says "code"; code-file retrieval is now reserved for uploaded/repository/code
+  document questions
 - `Unstructured` now has split evaluation coverage:
   - a mixed suite that shows it is not a good global replacement
   - a PDF-focused suite so we can evaluate it fairly on the document-structure problem it is actually trying to solve
@@ -134,7 +182,7 @@
 
 ## Status
 
-The project now has a functional MVP foundation in place with:
+The project now has a functional MVP foundation running on a real Linux server with:
 
 - saved chat threads
 - semantic retrieval via Ollama embeddings and Qdrant
@@ -142,13 +190,15 @@ The project now has a functional MVP foundation in place with:
 - editable runtime configuration
 - logs, diagnostics, cleanup, storage visibility, and recovery tooling
 - first real admin/security boundaries around settings, connectors, logs, cleanup, export/import, and hidden documents
+- a realistic live document library used for regression testing
 
 ## Highest-Priority Next Work
 
-- add a first explicit role model such as `admin` and `viewer`
-- admin auth now uses password hashes and `HttpOnly` session cookies instead of cleartext password checks and browser session storage
-- connector manifests can now persist future secret provider settings encrypted at rest through `APP_SECRETS_KEY`
-- keep improving answer naturalness and OCR phrasing
-- keep reducing duplicate or noisy sources
-- expand eval coverage across more document types and business-style questions
-- improve deployment, backup, and maintenance confidence
+- commit and push the current local/server changes
+- verify that a GitHub-based install/update gets the same code that is currently deployed manually on the server
+- retry or resolve the one pending live document: `Google cert.pdf`
+- test the Writing workspace with more real incident/customer-style documents
+  and decide whether it should become a separate Writing tab later
+- keep improving answer naturalness, source selection, and broad invoice summaries
+- expand eval coverage across more real document categories and business-style questions
+- improve deployment, backup, update, and maintenance confidence

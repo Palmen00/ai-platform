@@ -71,6 +71,7 @@ For admin protection and a stricter runtime profile, these env values are now av
 - `ADMIN_SESSION_SECRET=...`
 - `APP_SECRETS_KEY=...`
 - `ADMIN_SESSION_TTL_HOURS=12`
+- `ADMIN_REMEMBER_ME_TTL_DAYS=30`
 - `SAFE_MODE=true`
 - `APP_TIMEZONE=Europe/Stockholm`
 - `ASSISTANT_INTELLIGENCE_ENABLED=true`

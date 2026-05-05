@@ -10,6 +10,8 @@ type ChatMessageProps = {
     chunkIndex: number,
     excerpt: string
   ) => void;
+  onAskSource?: (documentId: string, documentName: string) => void;
+  onCompareSource?: (documentId: string, documentName: string) => void;
 };
 
 type DisplaySource = ChatSource & {
@@ -110,7 +112,12 @@ function collapseSources(sources: ChatSource[]) {
   return collapsed;
 }
 
-export function ChatMessage({ msg, onOpenSource }: ChatMessageProps) {
+export function ChatMessage({
+  msg,
+  onOpenSource,
+  onAskSource,
+  onCompareSource,
+}: ChatMessageProps) {
   const isUser = msg.role === "user";
   const displaySources = msg.sources ? collapseSources(msg.sources) : [];
 
@@ -325,6 +332,39 @@ export function ChatMessage({ msg, onOpenSource }: ChatMessageProps) {
                   </div>
                   <div className="text-xs leading-6 text-slate-500">
                     {source.excerpt}
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onAskSource?.(source.document_id, source.document_name)
+                      }
+                      className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+                    >
+                      {siteConfig.chat.sourceAskLabel}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onOpenSource?.(
+                          source.document_id,
+                          source.chunk_index,
+                          source.excerpt
+                        )
+                      }
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+                    >
+                      {siteConfig.chat.sourcePreviewLabel}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onCompareSource?.(source.document_id, source.document_name)
+                      }
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+                    >
+                      {siteConfig.chat.sourceCompareLabel}
+                    </button>
                   </div>
                   {source.ocr_used && (
                     <div className="mt-2 text-[11px] leading-5 text-amber-700">

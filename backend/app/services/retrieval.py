@@ -322,6 +322,12 @@ class RetrievalService:
                 viewer_username=viewer_username,
             )
 
+        if self.document_service.is_latest_document_by_document_date_query(query):
+            return self.document_service.summarize_latest_document_by_document_date(
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+
         if self.document_service.is_signed_document_query(query):
             return self.document_service.summarize_signed_documents(
                 is_admin=is_admin,
@@ -348,16 +354,28 @@ class RetrievalService:
             if title_answer:
                 return title_answer
 
-        if self.document_service.is_document_entity_detail_query(query):
-            entity_answer = self.document_service.summarize_document_companies(
+        if self.document_service.is_document_entity_inventory_query(query):
+            entity_answer = self.document_service.summarize_document_entities_by_metadata(
                 query,
-                history=history,
                 allowed_document_ids=allowed_document_ids,
                 is_admin=is_admin,
                 viewer_username=viewer_username,
             )
             if entity_answer:
                 return entity_answer
+
+        if self._is_document_writing_task_query(query):
+            return None
+
+        if self.document_service.is_invoice_extreme_query(query):
+            extreme_answer = self.document_service.summarize_invoice_extreme(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if extreme_answer:
+                return extreme_answer
 
         if self.document_service.is_document_invoice_facts_query(query):
             invoice_answer = self.document_service.summarize_document_invoice_facts(
@@ -391,6 +409,17 @@ class RetrievalService:
             )
             if product_answer:
                 return product_answer
+
+        if self.document_service.is_document_entity_detail_query(query):
+            entity_answer = self.document_service.summarize_document_companies(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if entity_answer:
+                return entity_answer
 
         if self.document_service.is_document_action_query(query):
             action_answer = self.document_service.summarize_document_actions(
@@ -538,14 +567,6 @@ class RetrievalService:
                 viewer_username=viewer_username,
             )
 
-        if self.document_service.is_document_entity_inventory_query(query):
-            return self.document_service.summarize_document_entities_by_metadata(
-                query,
-                allowed_document_ids=allowed_document_ids,
-                is_admin=is_admin,
-                viewer_username=viewer_username,
-            )
-
         if (
             self.document_service.is_document_metadata_inventory_query(query)
             and not self.document_service.is_document_content_question(query)
@@ -629,6 +650,95 @@ class RetrievalService:
             caveat = self._ocr_caveat(unique_sources[0], document_count)
             return f"{lead} {' '.join(source_lines)}{caveat}"
         return None
+
+    def sources_for_direct_document_reply(
+        self,
+        *,
+        query: str,
+        reply: str,
+        fallback_sources: list[ChatSource],
+        limit: int = 4,
+        allowed_document_ids: list[str] | None = None,
+        history: list | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> list[ChatSource]:
+        allowed_document_id_set = set(allowed_document_ids or [])
+        visible_documents = self.document_service.list_uploaded_documents(
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if allowed_document_id_set:
+            visible_documents = [
+                document
+                for document in visible_documents
+                if document.id in allowed_document_id_set
+            ]
+        if not visible_documents:
+            return []
+
+        reply_lower = reply.lower()
+        reply_document_matches: list[tuple[int, str]] = []
+        for document in visible_documents:
+            match_index = reply_lower.find(document.original_name.lower())
+            if match_index >= 0:
+                reply_document_matches.append((match_index, document.id))
+        selected_document_ids: list[str] = [
+            document_id
+            for _, document_id in sorted(reply_document_matches, key=lambda item: item[0])
+        ][:limit]
+
+        if not selected_document_ids:
+            metadata_documents = self.document_service.find_documents_by_metadata(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            selected_document_ids = [document.id for document in metadata_documents[:limit]]
+
+        if not selected_document_ids and fallback_sources:
+            return fallback_sources[:limit]
+
+        if (
+            not selected_document_ids
+            and self.document_service.is_recent_document_inventory_query(query)
+        ):
+            selected_document_ids = [visible_documents[0].id]
+
+        if not selected_document_ids and (
+            self.document_service.is_document_inventory_query(query)
+            or self.document_service.is_document_similarity_query(query)
+            or self.document_service.is_document_metadata_inventory_query(query)
+        ):
+            selected_document_ids = [document.id for document in visible_documents[:limit]]
+
+        if not selected_document_ids:
+            resolved_ids = self.document_service.find_referenced_documents(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if not resolved_ids:
+                resolved_ids = self.document_service.resolve_follow_up_document_ids(
+                    query,
+                    history=history,
+                    allowed_document_ids=allowed_document_ids,
+                    is_admin=is_admin,
+                    viewer_username=viewer_username,
+                )
+            selected_document_ids = resolved_ids[:limit]
+
+        if not selected_document_ids:
+            return []
+
+        return self.document_service.recent_sources_for_document_ids(
+            selected_document_ids[:limit],
+            limit=limit,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
 
     def _summarize_generic_document_content(
         self,
@@ -744,6 +854,45 @@ class RetrievalService:
             "sammanfatta",
         )
         return any(marker in lowered for marker in summary_markers)
+
+    def _is_document_writing_task_query(self, query: str) -> bool:
+        lowered = " ".join(query.lower().split())
+        if not self.document_service.is_document_reference_query(query):
+            return False
+
+        writing_markers = (
+            "draft ",
+            "write ",
+            "compose ",
+            "create ",
+            "generate ",
+            "prepare ",
+            "formulate ",
+            "skriv ",
+            "skapa ",
+            "utforma ",
+            "formulera ",
+        )
+        artifact_markers = (
+            "email",
+            "mail",
+            "reply",
+            "response",
+            "customer email",
+            "incident report",
+            "management summary",
+            "executive summary",
+            "action plan",
+            "report",
+            "rapport",
+            "sammanfattning",
+            "svar",
+            "kundmail",
+            "handlingsplan",
+        )
+        return any(marker in lowered for marker in writing_markers) and any(
+            marker in lowered for marker in artifact_markers
+        )
 
     def _wants_document_type_inventory(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())

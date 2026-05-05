@@ -31,6 +31,9 @@ function ChatPageContent() {
   const [documentsError, setDocumentsError] = useState("");
   const [isLoadingModels, setIsLoadingModels] = useState(true);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(true);
+  const [selectedDraftToolId, setSelectedDraftToolId] = useState<string>(
+    siteConfig.chat.draftTools[0]?.id ?? ""
+  );
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isChatCompressed, setIsChatCompressed] = useState(false);
   const [isScopeOpen, setIsScopeOpen] = useState(false);
@@ -48,6 +51,7 @@ function ChatPageContent() {
   const scrollFrameRef = useRef<number | null>(null);
   const scopeRef = useRef<HTMLDivElement | null>(null);
   const previewRequestKeyRef = useRef("");
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const {
     messages,
@@ -269,6 +273,23 @@ function ChatPageContent() {
     }
   }
 
+  function applyDraftTool(prompt: string) {
+    setInput((current) => {
+      const trimmed = current.trim();
+      return trimmed ? `${trimmed}\n\n${prompt}` : prompt;
+    });
+  }
+
+  function applySelectedDraftTool() {
+    const selectedTool = siteConfig.chat.draftTools.find(
+      (tool) => tool.id === selectedDraftToolId
+    );
+    if (selectedTool) {
+      applyDraftTool(selectedTool.prompt);
+      window.setTimeout(() => inputRef.current?.focus(), 0);
+    }
+  }
+
   const isComposerCompact = isChatCompressed;
   const selectedDocuments = documents.filter((document) =>
     selectedDocumentIds.includes(document.id)
@@ -330,6 +351,30 @@ function ChatPageContent() {
     setPreviewError("");
     setIsPreviewLoading(false);
     setPreviewHighlightExcerpt("");
+  }
+
+  function askAboutSource(documentId: string, documentName: string) {
+    setSelectedDocumentIds([documentId]);
+    setInput((current) => {
+      const prefix = `About ${documentName}: `;
+      return current.trim() ? `${current.trim()}\n\n${prefix}` : prefix;
+    });
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  }
+
+  function compareSource(documentId: string, documentName: string) {
+    const existingScope = selectedDocumentIds.filter((id) => id !== documentId);
+    const nextScope =
+      existingScope.length > 0 ? [...existingScope, documentId] : [];
+    setSelectedDocumentIds(nextScope);
+    setInput((current) => {
+      const prompt =
+        existingScope.length > 0
+          ? `Compare ${documentName} with the selected source(s). Focus on dates, totals, products, risks, and key differences.`
+          : `Compare ${documentName} with the most similar or relevant uploaded documents. Start by naming the comparison sources, then list the key differences.`;
+      return current.trim() ? `${current.trim()}\n\n${prompt}` : prompt;
+    });
+    window.setTimeout(() => inputRef.current?.focus(), 0);
   }
 
   if (isAuthLoading) {
@@ -596,6 +641,8 @@ function ChatPageContent() {
                     onOpenSource={(documentId, chunkIndex, excerpt) =>
                       void openSourcePreview(documentId, chunkIndex, excerpt)
                     }
+                    onAskSource={askAboutSource}
+                    onCompareSource={compareSource}
                   />
                 ))}
 
@@ -644,7 +691,63 @@ function ChatPageContent() {
                     : "rounded-[1.25rem] p-2"
                 }`}
               >
+                {!isComposerCompact && (
+                  <div className="mb-2 rounded-[1rem] border border-slate-200 bg-white px-3 py-2">
+                    <div className="flex flex-col gap-3">
+                      <div>
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-400">
+                          {siteConfig.chat.draftToolsTitle}
+                        </p>
+                        <p className="mt-0.5 text-xs text-slate-500">
+                          {siteConfig.chat.draftToolsHint}
+                        </p>
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                        <label className="min-w-0">
+                          <span className="mb-1 block text-[11px] font-medium uppercase tracking-[0.14em] text-slate-400">
+                            {siteConfig.chat.draftToolSelectLabel}
+                          </span>
+                          <select
+                            value={selectedDraftToolId}
+                            onChange={(event) =>
+                              setSelectedDraftToolId(event.target.value)
+                            }
+                            className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-slate-400"
+                          >
+                            {siteConfig.chat.draftTools.map((tool) => (
+                              <option key={tool.id} value={tool.id}>
+                                {tool.label} - {tool.description}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <button
+                          type="button"
+                          onClick={applySelectedDraftTool}
+                          className="rounded-xl bg-slate-950 px-3.5 py-2 text-sm font-medium text-white transition hover:bg-slate-800"
+                        >
+                          {siteConfig.chat.draftToolApplyLabel}
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {siteConfig.chat.draftTools.map((tool) => (
+                          <button
+                            key={tool.id}
+                            type="button"
+                            onClick={() => applyDraftTool(tool.prompt)}
+                            title={tool.description}
+                            className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-700 transition hover:border-slate-300 hover:bg-slate-100"
+                          >
+                            {tool.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <textarea
+                  ref={inputRef}
                   value={input}
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(event) => {

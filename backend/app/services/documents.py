@@ -1,3 +1,4 @@
+import hashlib
 import json
 import mimetypes
 import re
@@ -15,6 +16,7 @@ from fastapi import UploadFile
 from app.config import settings
 from app.schemas.document import DocumentCommercialLineItem
 from app.schemas.document import DocumentCommercialSummary
+from app.schemas.document import DocumentDuplicateMatch
 from app.schemas.document import DocumentRecord
 from app.schemas.document import DocumentFacetOption
 from app.schemas.document import DocumentFamilyMember
@@ -27,6 +29,7 @@ from app.schemas.document import DocumentSimilarityMatch
 from app.schemas.document import DocumentMaintenanceStatus
 from app.schemas.document import DocumentPreview
 from app.schemas.document import DocumentPreviewChunk
+from app.schemas.document import DocumentUploadWarning
 from app.schemas.chat import ChatHistoryMessage, ChatSource
 from app.services.activity import activity_service
 from app.services.document_processing import DocumentProcessingService
@@ -58,9 +61,12 @@ class DocumentService:
             "financial",
             "money",
             "faktura",
+            "fakturan",
             "fakturor",
+            "fakturorna",
             "fraktura",
             "frakturor",
+            "frakturorna",
         },
         "contract": {"contract", "contracts", "agreement", "agreements", "avtal", "kontrakt"},
         "insurance": {"insurance", "insurances", "insurance policy", "insurance policies", "försäkring", "försäkringar"},
@@ -110,14 +116,14 @@ class DocumentService:
             try:
                 with metadata_file.open("r", encoding="utf-8") as file_handle:
                     payload = json.load(file_handle)
-                    documents.append(
-                        self._enrich_document_metadata(
-                            self._normalize_document_record(
-                                DocumentRecord.model_validate(payload)
-                            )
+                documents.append(
+                    self._enrich_document_metadata(
+                        self._normalize_document_record(
+                            DocumentRecord.model_validate(payload)
                         )
                     )
-            except (FileNotFoundError, json.JSONDecodeError, ValueError):
+                )
+            except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError):
                 # Keep listing resilient if files are deleted or rewritten mid-iteration.
                 continue
 
@@ -150,11 +156,11 @@ class DocumentService:
             try:
                 with metadata_file.open("r", encoding="utf-8") as file_handle:
                     payload = json.load(file_handle)
-                    document = self._normalize_document_record(
-                        DocumentRecord.model_validate(payload)
-                    )
-                    documents.append(self._compact_document_record(document))
-            except (FileNotFoundError, json.JSONDecodeError, ValueError):
+                document = self._normalize_document_record(
+                    DocumentRecord.model_validate(payload)
+                )
+                documents.append(self._compact_document_record(document))
+            except (FileNotFoundError, json.JSONDecodeError, ValueError, OSError):
                 continue
 
         visible_documents = self._filter_documents_for_viewer(
@@ -345,6 +351,7 @@ class DocumentService:
         query_terms = set(self.extract_query_terms(query)) | set(
             self._reference_query_terms(query)
         )
+        query_terms = query_terms - self._generic_document_reference_terms()
         allowed_document_id_set = set(allowed_document_ids or [])
         exact_matches: list[tuple[float, str]] = []
         ranked_matches: list[tuple[float, str]] = []
@@ -527,16 +534,22 @@ class DocumentService:
         is_admin: bool = False,
         viewer_username: str | None = None,
     ) -> list[ChatSource]:
-        allowed_document_id_set = set(document_ids)
-        processed_documents = [
-            document
+        visible_documents_by_id = {
+            document.id: document
             for document in self.list_uploaded_documents(
                 is_admin=is_admin,
                 viewer_username=viewer_username,
             )
-            if document.id in allowed_document_id_set
-            and document.processing_status == "processed"
-        ]
+        }
+        processed_documents = []
+        seen_document_ids: set[str] = set()
+        for document_id in document_ids:
+            if document_id in seen_document_ids:
+                continue
+            seen_document_ids.add(document_id)
+            document = visible_documents_by_id.get(document_id)
+            if document and document.processing_status == "processed":
+                processed_documents.append(document)
         return self._recent_sources(processed_documents, limit=limit)
 
     def save_upload(self, upload: UploadFile) -> DocumentRecord:
@@ -547,6 +560,126 @@ class DocumentService:
             content_type=upload.content_type or "application/octet-stream",
             source_origin="upload",
         )
+
+    def build_upload_warnings(
+        self,
+        document: DocumentRecord,
+        *,
+        is_admin: bool = True,
+        viewer_username: str | None = None,
+    ) -> list[DocumentUploadWarning]:
+        duplicate_matches = self.find_duplicate_candidates(
+            document,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if not duplicate_matches:
+            return []
+
+        strongest_match = duplicate_matches[0]
+        extra_count = max(0, len(duplicate_matches) - 1)
+        extra_text = f" and {extra_count} more file" if extra_count == 1 else ""
+        if extra_count > 1:
+            extra_text = f" and {extra_count} more files"
+
+        return [
+            DocumentUploadWarning(
+                type="duplicate",
+                message=(
+                    f"{document.original_name} looks like a duplicate of "
+                    f"{strongest_match.document_name}{extra_text}."
+                ),
+                matches=duplicate_matches,
+            )
+        ]
+
+    def find_duplicate_candidates(
+        self,
+        document: DocumentRecord,
+        *,
+        limit: int = 5,
+        is_admin: bool = True,
+        viewer_username: str | None = None,
+    ) -> list[DocumentDuplicateMatch]:
+        target_hash = self._ensure_document_content_sha256(document)
+        target_name = self._normalize_duplicate_document_name(document.original_name)
+        matches: list[DocumentDuplicateMatch] = []
+
+        for metadata_file in sorted(self.metadata_dir.glob("*.json")):
+            candidate = self.get_document(metadata_file.stem)
+            if candidate is None:
+                continue
+            if candidate.id == document.id:
+                continue
+            if not self._document_is_visible_to_viewer(
+                candidate,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            ):
+                continue
+
+            candidate_hash = self._ensure_document_content_sha256(candidate)
+            if target_hash and candidate_hash and candidate_hash == target_hash:
+                matches.append(
+                    DocumentDuplicateMatch(
+                        document_id=candidate.id,
+                        document_name=candidate.original_name,
+                        match_type="exact_content",
+                        confidence="high",
+                        reason="The uploaded bytes match an existing stored file.",
+                    )
+                )
+                continue
+
+            candidate_name = self._normalize_duplicate_document_name(
+                candidate.original_name
+            )
+            size_delta = self._file_size_delta_ratio(
+                document.size_bytes,
+                candidate.size_bytes,
+            )
+            if target_name and candidate_name == target_name and size_delta <= 0.02:
+                matches.append(
+                    DocumentDuplicateMatch(
+                        document_id=candidate.id,
+                        document_name=candidate.original_name,
+                        match_type="same_name_and_size",
+                        confidence="medium",
+                        reason="The file name and size are almost identical.",
+                    )
+                )
+                continue
+
+            name_similarity = (
+                SequenceMatcher(None, target_name, candidate_name).ratio()
+                if target_name and candidate_name
+                else 0.0
+            )
+            if name_similarity >= 0.96 and size_delta <= 0.02:
+                matches.append(
+                    DocumentDuplicateMatch(
+                        document_id=candidate.id,
+                        document_name=candidate.original_name,
+                        match_type="similar_name_and_size",
+                        confidence="low",
+                        reason="The file name and size look very similar.",
+                    )
+                )
+
+        confidence_rank = {"high": 0, "medium": 1, "low": 2}
+        match_type_rank = {
+            "exact_content": 0,
+            "same_name_and_size": 1,
+            "similar_name_and_size": 2,
+        }
+        return sorted(
+            matches,
+            key=lambda item: (
+                confidence_rank.get(item.confidence, 99),
+                match_type_rank.get(item.match_type, 99),
+                item.document_name.lower(),
+            ),
+        )[:limit]
 
     def import_external_document(
         self,
@@ -1352,8 +1485,6 @@ class DocumentService:
             "scan",
             "scanned",
             "ocr",
-            "code",
-            "script",
             "uploaded",
             "upload",
             "pdf",
@@ -1365,6 +1496,23 @@ class DocumentService:
             "arkitekturfilen",
         }
         if any(term in lowered for term in reference_terms):
+            return True
+        if re.search(r"\b(?:code|script|scripts)\b", lowered) and any(
+            marker in lowered
+            for marker in (
+                "file",
+                "files",
+                "document",
+                "documents",
+                "uploaded",
+                "upload",
+                "repo",
+                "repository",
+                "source file",
+                "function name",
+                "functions in",
+            )
+        ):
             return True
         return bool(
             re.search(
@@ -1431,6 +1579,8 @@ class DocumentService:
             "recently uploaded",
             "senaste",
             "nyaste",
+            "senast",
+            "laddat upp senast",
             "senast uppladdade",
             "sist uppladdade",
         )
@@ -1484,7 +1634,7 @@ class DocumentService:
         return False
 
     def is_document_content_question(self, query: str) -> bool:
-        lowered = " ".join(query.lower().split())
+        lowered = " ".join(self._strip_accents(query).lower().split())
         content_markers = (
             "mention",
             "mentions",
@@ -1542,8 +1692,24 @@ class DocumentService:
             "totals",
             "metric",
             "metrics",
+            "vad handlar",
+            "handlar",
+            "vad star",
+            "star det",
+            "galler",
+            "innehaller",
+            "sammanfatta",
+            "beskriv",
+            "forklara",
         )
         return any(marker in lowered for marker in content_markers)
+
+    def _contains_query_marker(self, lowered_query: str, markers: tuple[str, ...]) -> bool:
+        for marker in markers:
+            pattern = re.escape(marker).replace(r"\ ", r"\s+")
+            if re.search(rf"(?<![a-z0-9]){pattern}(?![a-z0-9])", lowered_query):
+                return True
+        return False
 
     def _looks_like_follow_up_document_question(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
@@ -1582,7 +1748,7 @@ class DocumentService:
         )
 
     def is_document_entity_inventory_query(self, query: str) -> bool:
-        lowered = " ".join(query.lower().split())
+        lowered = " ".join(self._strip_accents(query).lower().split())
         if not self.extract_requested_document_type(query):
             return False
 
@@ -1602,6 +1768,12 @@ class DocumentService:
             "organisations",
             "party",
             "parties",
+            "foretag",
+            "bolag",
+            "leverantor",
+            "leverantorer",
+            "kund",
+            "kunder",
         )
         context_markers = (
             "appears in",
@@ -1613,10 +1785,24 @@ class DocumentService:
             "mentioned in",
             "mentions",
             "named in",
+            "in my",
+            "in our",
+            "among my",
+            "among our",
+            "across my",
+            "across our",
             "on the",
             "in the",
             "in a",
             "on a",
+            "dyker upp",
+            "finns i",
+            "forekommer i",
+            "i faktur",
+            "bland faktur",
+            "mest i",
+            "vanligast",
+            "oftast",
         )
 
         return any(marker in lowered for marker in role_markers) and any(
@@ -1763,6 +1949,41 @@ class DocumentService:
             )
         )
 
+    def is_latest_document_by_document_date_query(self, query: str) -> bool:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        recent_markers = (
+            "latest",
+            "newest",
+            "most recent",
+            "senaste",
+            "nyaste",
+        )
+        document_date_markers = (
+            "document date",
+            "by date",
+            "dated",
+            "date on",
+            "not upload time",
+            "not uploaded",
+            "dokumentdatum",
+            "datum pa",
+            "datum p",
+        )
+        document_markers = (
+            "document",
+            "documents",
+            "file",
+            "files",
+            "uploaded",
+            "dokument",
+            "filer",
+        )
+        return (
+            any(marker in lowered for marker in recent_markers)
+            and any(marker in lowered for marker in document_date_markers)
+            and any(marker in lowered for marker in document_markers)
+        )
+
     def is_signed_document_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
         signature_markers = (
@@ -1823,7 +2044,7 @@ class DocumentService:
         return any(marker in lowered for marker in role_markers)
 
     def is_document_product_query(self, query: str) -> bool:
-        lowered = " ".join(query.lower().split())
+        lowered = " ".join(self._strip_accents(query).lower().split())
         if any(
             marker in lowered
             for marker in (
@@ -1858,6 +2079,14 @@ class DocumentService:
             "bestallda",
             "köpt",
             "kopt",
+            "kopte",
+            "kopa",
+            "cykel",
+            "cykelgrejer",
+            "bike",
+            "bicycle",
+            "produkt",
+            "produkter",
             "kostnad",
             "kostnader",
             "line item",
@@ -1872,6 +2101,12 @@ class DocumentService:
             "invoice no",
             "invoice date",
             "due date",
+            "issued",
+            "issue date",
+            "created",
+            "created date",
+            "creation date",
+            "when was",
             "subtotal",
             "tax",
             "total",
@@ -1881,13 +2116,112 @@ class DocumentService:
             "forfallodatum",
             "summa",
             "moms",
+            "belopp",
+            "totalsumma",
+            "totalsummor",
+            "betalat",
+            "kostnad",
+            "kostnader",
+        )
+        payment_markers = (
+            "belopp",
+            "totalsumma",
+            "totalsummor",
+            "betalat",
+            "kostnad",
+            "kostnader",
+            "paid",
+            "payment",
         )
         has_invoice_context = (
             "invoice" in lowered
+            or "invoices" in lowered
             or "faktura" in lowered
+            or "fakturor" in lowered
             or self.extract_requested_document_type(query) in {"invoice", "receipt", "quote"}
+            or (
+                any(marker in lowered for marker in ("document", "documents", "dokument"))
+                and any(marker in lowered for marker in payment_markers)
+            )
         )
         return has_invoice_context and any(marker in lowered for marker in fact_markers)
+
+    def is_invoice_extreme_query(self, query: str) -> bool:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        invoice_context = (
+            "invoice" in lowered
+            or "invoices" in lowered
+            or "faktura" in lowered
+            or "fakturor" in lowered
+        )
+        if not invoice_context:
+            return False
+
+        extreme_markers = (
+            "most expensive",
+            "highest",
+            "largest",
+            "biggest",
+            "max",
+            "maximum",
+            "cheapest",
+            "lowest",
+            "smallest",
+            "min",
+            "minimum",
+            "dyrast",
+            "hogst",
+            "högst",
+            "storst",
+            "billigast",
+            "lagst",
+            "lägst",
+            "minst",
+        )
+        money_markers = (
+            "expensive",
+            "cost",
+            "costs",
+            "total",
+            "amount",
+            "price",
+            "value",
+            "kostnad",
+            "belopp",
+            "summa",
+            "pris",
+        )
+        return any(marker in lowered for marker in extreme_markers) and (
+            any(marker in lowered for marker in money_markers)
+            or "invoice" in lowered
+            or "faktura" in lowered
+        )
+
+    def is_multi_document_invoice_facts_query(self, query: str) -> bool:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        if not self.is_document_invoice_facts_query(query):
+            return False
+        return any(
+            marker in lowered
+            for marker in (
+                "all ",
+                "across ",
+                "among ",
+                "many ",
+                "multiple ",
+                "table",
+                "table-like",
+                "summary",
+                "summarize",
+                "where you can find",
+                "invoices",
+                "fakturor",
+                "fakturorna",
+                "totalsummor",
+                "belopp",
+                "lista",
+            )
+        )
 
     def is_document_code_function_query(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
@@ -1906,10 +2240,8 @@ class DocumentService:
         return any(marker in lowered for marker in markers)
 
     def is_multi_document_product_query(self, query: str) -> bool:
-        lowered = " ".join(query.lower().split())
+        lowered = " ".join(self._strip_accents(query).lower().split())
         if not self.is_document_product_query(query):
-            return False
-        if not self.extract_requested_document_type(query):
             return False
         return any(
             marker in lowered
@@ -1920,6 +2252,23 @@ class DocumentService:
                 "among ",
                 "multiple ",
                 "many ",
+                "invoices",
+                "documents",
+                "fakturor",
+                "fakturorna",
+                "dokument",
+                "filer",
+                "fil ",
+                "kvitton",
+                "receipts",
+                "purchases",
+                "bestallningar",
+                "bestÃ¤llningar",
+                "bestallt",
+                "har jag kopt",
+                "vad jag bestallt",
+                "leverantor",
+                "where you can find",
                 "any invoices",
                 "any documents",
             )
@@ -1958,7 +2307,7 @@ class DocumentService:
             "problem",
             "incident",
         )
-        return any(marker in lowered for marker in markers)
+        return self._contains_query_marker(lowered, markers)
 
     def is_document_action_query(self, query: str) -> bool:
         lowered = " ".join(self._strip_accents(query).lower().split())
@@ -1983,7 +2332,7 @@ class DocumentService:
             "nasta steg",
             "ansvarig",
         )
-        return any(marker in lowered for marker in markers)
+        return self._contains_query_marker(lowered, markers)
 
     def is_document_decision_query(self, query: str) -> bool:
         lowered = " ".join(self._strip_accents(query).lower().split())
@@ -2003,10 +2352,18 @@ class DocumentService:
             "beslutade",
             "godkand",
         )
-        return any(marker in lowered for marker in markers)
+        return self._contains_query_marker(lowered, markers)
 
     def is_document_deadline_query(self, query: str) -> bool:
         lowered = " ".join(self._strip_accents(query).lower().split())
+        if (
+            (self.is_recent_document_inventory_query(query) or "senast" in lowered)
+            and any(
+                marker in lowered
+                for marker in ("laddat upp", "uppladd", "uploaded", "upload")
+            )
+        ):
+            return False
         markers = (
             "deadline",
             "deadlines",
@@ -2025,7 +2382,7 @@ class DocumentService:
             "forfall",
             "giltig",
         )
-        return any(marker in lowered for marker in markers)
+        return self._contains_query_marker(lowered, markers)
 
     def is_broad_similarity_inventory_query(self, query: str) -> bool:
         return self.is_document_similarity_query(query) and not self._reference_query_terms(query)
@@ -2122,6 +2479,26 @@ class DocumentService:
             "discount code",
             "tracking code",
             "reference code",
+            "code a ",
+            "code an ",
+            "help me code",
+            "write code",
+            "write a c#",
+            "write c#",
+            "for loop",
+        )
+        code_document_context_markers = (
+            "code file",
+            "source file",
+            "script file",
+            "uploaded code",
+            "uploaded script",
+            "code document",
+            "script document",
+            "repo",
+            "repository",
+            "function name",
+            "functions in",
         )
         scanned_media_markers = (
             "scanned pdf",
@@ -2144,6 +2521,10 @@ class DocumentService:
                     continue
                 if document_type == "code" and any(
                     phrase in lowered for phrase in ignored_code_phrases
+                ):
+                    continue
+                if document_type == "code" and not any(
+                    marker in lowered for marker in code_document_context_markers
                 ):
                     continue
                 if document_type == "code" and any(
@@ -2570,6 +2951,45 @@ class DocumentService:
             f"{self._format_uploaded_at(document.uploaded_at)}."
         )
 
+    def summarize_latest_document_by_document_date(
+        self,
+        *,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        documents = [
+            document
+            for document in self.list_uploaded_documents(
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if document.document_date
+        ]
+        if not documents:
+            return (
+                "I could not find a detected document date on any uploaded documents yet."
+            )
+
+        documents.sort(
+            key=lambda item: (item.document_date or "", item.uploaded_at or ""),
+            reverse=True,
+        )
+        latest_document = documents[0]
+        latest_date = latest_document.document_date_label or latest_document.document_date
+        if len(documents) == 1:
+            return (
+                f"The newest uploaded document by detected document date is "
+                f"{latest_document.original_name} ({latest_date})."
+            )
+
+        next_document = documents[1]
+        next_date = next_document.document_date_label or next_document.document_date
+        return (
+            f"The newest uploaded document by detected document date is "
+            f"{latest_document.original_name} ({latest_date}). "
+            f"The next newest by document date is {next_document.original_name} ({next_date})."
+        )
+
     def summarize_signed_documents(
         self,
         *,
@@ -2694,6 +3114,13 @@ class DocumentService:
                 is_admin=is_admin,
                 viewer_username=viewer_username,
             )
+            if not matching_documents:
+                matching_documents = self.find_documents_by_metadata(
+                    f"list {requested_type}",
+                    allowed_document_ids=allowed_document_ids,
+                    is_admin=is_admin,
+                    viewer_username=viewer_username,
+                )
             if matching_documents:
                 lowered = " ".join(query.lower().split())
                 if "other " in lowered:
@@ -2731,6 +3158,23 @@ class DocumentService:
                 is_admin=is_admin,
                 viewer_username=viewer_username,
             )
+            if not matching_documents and self.is_multi_document_product_query(query):
+                matching_documents = self.find_documents_by_metadata(
+                    f"list {requested_type}",
+                    allowed_document_ids=allowed_document_ids,
+                    is_admin=is_admin,
+                    viewer_username=viewer_username,
+                )
+            if matching_documents:
+                return self._summarize_products_for_documents(matching_documents)
+
+        if self.is_multi_document_product_query(query):
+            matching_documents = self.find_documents_by_metadata(
+                "list invoice",
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
             if matching_documents:
                 return self._summarize_products_for_documents(matching_documents)
 
@@ -2745,6 +3189,33 @@ class DocumentService:
         is_admin: bool = False,
         viewer_username: str | None = None,
     ) -> str | None:
+        if self.is_multi_document_invoice_facts_query(query):
+            resolved_document_ids = self.find_referenced_documents(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if not resolved_document_ids:
+                matching_documents = self.find_documents_by_metadata(
+                    query,
+                    allowed_document_ids=allowed_document_ids,
+                    is_admin=is_admin,
+                    viewer_username=viewer_username,
+                )
+                requested_type = self.extract_requested_document_type(query)
+                if not matching_documents and requested_type:
+                    matching_documents = self.find_documents_by_metadata(
+                        f"list {requested_type}",
+                        allowed_document_ids=allowed_document_ids,
+                        is_admin=is_admin,
+                        viewer_username=viewer_username,
+                    )
+                if matching_documents:
+                    return self._summarize_commercial_facts_for_documents(
+                        matching_documents
+                    )
+
         document = self.resolve_primary_document(
             query,
             history=history,
@@ -2772,9 +3243,16 @@ class DocumentService:
             details.append(f"invoice number {summary.invoice_number}")
         if summary.invoice_date:
             details.append(f"invoice date {summary.invoice_date}")
+        elif document.document_date:
+            details.append(f"invoice date {document.document_date}")
         if summary.due_date:
             details.append(f"due date {summary.due_date}")
-        if summary.subtotal is not None:
+        effective_total = self._commercial_effective_total_label(summary)
+        if (
+            summary.subtotal is not None
+            and float(summary.subtotal) > 0
+            and not effective_total
+        ):
             details.append(
                 "subtotal "
                 + self._format_commercial_money(summary.subtotal, summary.currency)
@@ -2784,11 +3262,8 @@ class DocumentService:
                 "tax "
                 + self._format_commercial_money(summary.tax, summary.currency)
             )
-        if summary.total is not None:
-            details.append(
-                "total "
-                + self._format_commercial_money(summary.total, summary.currency)
-            )
+        if effective_total:
+            details.append(effective_total)
         if not details:
             return None
 
@@ -2805,6 +3280,73 @@ class DocumentService:
         return (
             f"The invoice details in {document.original_name} are: "
             f"{'; '.join(details)}.{product_suffix}"
+        )
+
+    def summarize_invoice_extreme(
+        self,
+        query: str,
+        *,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        want_lowest = any(
+            marker in lowered
+            for marker in (
+                "cheapest",
+                "lowest",
+                "smallest",
+                "min",
+                "minimum",
+                "billigast",
+                "lagst",
+                "lägst",
+                "minst",
+            )
+        )
+
+        invoice_documents = self.find_documents_by_metadata(
+            "list invoice",
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        rows: list[tuple[DocumentRecord, float, str | None, str]] = []
+        for document in invoice_documents:
+            summary = self._coerce_commercial_summary(document.commercial_summary)
+            total_info = self._commercial_effective_total_value(summary)
+            if not total_info:
+                continue
+            value, currency, label = total_info
+            rows.append((document, value, currency, label))
+
+        if not rows:
+            return "I found invoice documents, but I could not identify reliable totals for them yet."
+
+        rows.sort(key=lambda item: item[1], reverse=not want_lowest)
+        target_document, value, currency, label = rows[0]
+        companies = self._document_company_candidates(target_document)
+        supplier = f" from {self._join_phrases(companies[:2])}" if companies else ""
+        direction = "cheapest" if want_lowest else "most expensive"
+        currency_count = len({currency or "" for _document, _value, currency, _label in rows})
+        caveat = ""
+        if currency_count > 1:
+            caveat = (
+                " I did not normalize exchange rates, so treat cross-currency ranking"
+                " as a raw invoice-amount comparison."
+            )
+
+        preview_rows = [
+            f"{document.original_name}: {total_label}"
+            for document, _value, _currency, total_label in rows[:5]
+        ]
+        return (
+            f"The {direction} invoice I found is {target_document.original_name}"
+            f"{supplier}: {label}.\n"
+            "Top matches:\n"
+            + "\n".join(f"- {row}" for row in preview_rows)
+            + caveat
         )
 
     def summarize_document_code_functions(
@@ -4282,6 +4824,7 @@ class DocumentService:
                 source_file=source_file,
                 target_path=target_path,
             )
+            content_sha256 = self._calculate_file_sha256(target_path)
         except Exception:
             if target_path.exists():
                 target_path.unlink()
@@ -4293,6 +4836,7 @@ class DocumentService:
             stored_name=stored_name,
             content_type=content_type,
             size_bytes=size_bytes,
+            content_sha256=content_sha256,
             uploaded_at=datetime.now(UTC).isoformat(),
             source_origin=source_origin,
             source_connector_id=source_connector_id,
@@ -4333,10 +4877,12 @@ class DocumentService:
                 source_file=source_file,
                 target_path=target_path,
             )
+        content_sha256 = self._calculate_file_sha256(target_path)
 
         document.original_name = Path(original_name).name
         document.content_type = content_type
         document.size_bytes = size_bytes
+        document.content_sha256 = content_sha256
         document.source_origin = "connector" if source_provider or source_uri else "import"
         document.source_connector_id = source_connector_id
         document.source_provider = source_provider
@@ -4557,6 +5103,54 @@ class DocumentService:
                 output_file.write(chunk)
 
         return total_bytes
+
+    def _calculate_file_sha256(self, file_path: Path) -> str:
+        digest = hashlib.sha256()
+        with file_path.open("rb") as file_handle:
+            while True:
+                chunk = file_handle.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+
+    def _ensure_document_content_sha256(
+        self,
+        document: DocumentRecord,
+    ) -> str | None:
+        if document.content_sha256:
+            return document.content_sha256
+        if self._is_document_deleted(document.id):
+            return None
+
+        stored_path = self.uploads_dir / document.stored_name
+        if not stored_path.exists():
+            return None
+
+        try:
+            content_sha256 = self._calculate_file_sha256(stored_path)
+        except OSError:
+            return None
+
+        document.content_sha256 = content_sha256
+        self._write_metadata(document)
+        return content_sha256
+
+    def _normalize_duplicate_document_name(self, value: str) -> str:
+        stem = Path(value).stem
+        normalized = unicodedata.normalize("NFKD", stem)
+        normalized = "".join(
+            character for character in normalized if not unicodedata.combining(character)
+        )
+        normalized = normalized.lower().replace("_", " ").replace("-", " ")
+        normalized = re.sub(r"\s*\(\d+\)\s*$", "", normalized)
+        normalized = re.sub(r"\bcopy\b|\bkopia\b", "", normalized)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        return normalized
+
+    def _file_size_delta_ratio(self, left_size: int, right_size: int) -> float:
+        largest_size = max(left_size, right_size, 1)
+        return abs(left_size - right_size) / largest_size
 
     def _normalize_document_name(self, value: str) -> str:
         normalized = Path(value).stem.lower().replace("_", " ").replace("-", " ")
@@ -4917,6 +5511,86 @@ class DocumentService:
             return str(int(value))
         return f"{value:.2f}".rstrip("0").rstrip(".")
 
+    def _commercial_line_item_total(
+        self,
+        summary: DocumentCommercialSummary | None,
+    ) -> tuple[float, str | None] | None:
+        if not summary:
+            return None
+
+        total = 0.0
+        currency = summary.currency
+        has_total = False
+        for item in summary.line_items:
+            if item.total is None:
+                continue
+            total += float(item.total)
+            currency = currency or item.currency
+            has_total = True
+
+        if not has_total or total <= 0:
+            return None
+        return total, currency
+
+    def _commercial_effective_total_label(
+        self,
+        summary: DocumentCommercialSummary | None,
+    ) -> str | None:
+        if not summary:
+            return None
+        if summary.total is not None and float(summary.total) > 0:
+            return "total " + self._format_commercial_money(
+                summary.total,
+                summary.currency,
+            )
+
+        line_total = self._commercial_line_item_total(summary)
+        if line_total:
+            value, currency = line_total
+            return "line item total " + self._format_commercial_money(value, currency)
+
+        if summary.subtotal is not None and float(summary.subtotal) > 0:
+            return "subtotal " + self._format_commercial_money(
+                summary.subtotal,
+                summary.currency,
+            )
+
+        return None
+
+    def _commercial_effective_total_value(
+        self,
+        summary: DocumentCommercialSummary | None,
+    ) -> tuple[float, str | None, str] | None:
+        if not summary:
+            return None
+
+        if summary.total is not None and float(summary.total) > 0:
+            value = float(summary.total)
+            return (
+                value,
+                summary.currency,
+                "total " + self._format_commercial_money(value, summary.currency),
+            )
+
+        line_total = self._commercial_line_item_total(summary)
+        if line_total:
+            value, currency = line_total
+            return (
+                value,
+                currency,
+                "line item total " + self._format_commercial_money(value, currency),
+            )
+
+        if summary.subtotal is not None and float(summary.subtotal) > 0:
+            value = float(summary.subtotal)
+            return (
+                value,
+                summary.currency,
+                "subtotal " + self._format_commercial_money(value, summary.currency),
+            )
+
+        return None
+
     def _format_commercial_summary_suffix(
         self,
         summary: DocumentCommercialSummary | None,
@@ -4930,11 +5604,9 @@ class DocumentService:
             details.append(f"invoice date {summary.invoice_date}")
         if summary.due_date:
             details.append(f"due {summary.due_date}")
-        if summary.total is not None:
-            details.append(
-                "total "
-                + self._format_commercial_money(summary.total, summary.currency)
-            )
+        effective_total = self._commercial_effective_total_label(summary)
+        if effective_total:
+            details.append(effective_total)
         return f" ({', '.join(details)})" if details else ""
 
     def _summarize_products_for_documents(
@@ -4982,32 +5654,88 @@ class DocumentService:
 
         if len(documents) == 1:
             document, evidences = product_map[0]
-            lead = self._join_phrases(evidences[:3])
             summary = self._coerce_commercial_summary(document.commercial_summary)
             suffix = self._format_commercial_summary_suffix(summary)
             if summary and len(summary.line_items) > 1:
+                item_lines = "\n".join(f"- {item}" for item in evidences[:6])
                 return (
                     f"The ordered items I found in {document.original_name}{suffix} are: "
-                    f"{lead}."
+                    f"\n{item_lines}"
                 )
+            lead = self._join_phrases(evidences[:3])
             return (
                 f"The clearest ordered item in {document.original_name}{suffix} is {lead}. "
                 "I do not see a more detailed product list in the extracted text."
             )
 
-        leading_details = "; ".join(
+        leading_details = [
             f"{document.original_name}{self._format_commercial_summary_suffix(self._coerce_commercial_summary(document.commercial_summary))}: {self._join_phrases(evidences[:2])}"
             for document, evidences in product_map[:3]
-        )
+        ]
         response = (
             f"I found product-style information in {len(product_map)} of {len(documents)} related documents. "
-            f"The clearest matches are {leading_details}."
+            "The clearest matches are:\n"
+            + "\n".join(f"- {detail}" for detail in leading_details)
         )
         if empty_documents:
             response += (
-                f" {len(empty_documents)} related documents only expose totals or status without item details."
+                f"\n{len(empty_documents)} related documents only expose totals or status without item details."
             )
         return response
+
+    def _summarize_commercial_facts_for_documents(
+        self,
+        documents: list[DocumentRecord],
+    ) -> str | None:
+        commercial_rows: list[tuple[DocumentRecord, DocumentCommercialSummary]] = []
+        for document in documents:
+            summary = self._coerce_commercial_summary(document.commercial_summary)
+            if summary:
+                commercial_rows.append((document, summary))
+
+        if not commercial_rows:
+            return None
+
+        rendered_rows: list[str] = []
+        for document, summary in commercial_rows[:6]:
+            details: list[str] = []
+            companies = self._document_company_candidates(document)
+            if companies:
+                details.append(f"supplier {self._join_phrases(companies[:2])}")
+            if summary.invoice_number:
+                details.append(f"invoice {summary.invoice_number}")
+            if summary.invoice_date:
+                details.append(f"date {summary.invoice_date}")
+            elif document.document_date:
+                details.append(f"date {document.document_date}")
+            if summary.due_date:
+                details.append(f"due {summary.due_date}")
+            effective_total = self._commercial_effective_total_label(summary)
+            if effective_total:
+                details.append(effective_total)
+
+            line_items = [
+                item.description
+                for item in summary.line_items[:2]
+                if item.description.strip()
+            ]
+            if line_items:
+                details.append(f"items {self._join_phrases(line_items)}")
+
+            rendered_rows.append(
+                f"{document.original_name}: {', '.join(details) if details else 'invoice-style details detected'}"
+            )
+
+        suffix = ""
+        if len(commercial_rows) > len(rendered_rows):
+            suffix = f"\nI found {len(commercial_rows) - len(rendered_rows)} more matching invoice-style documents."
+
+        return (
+            f"I found invoice-style facts in {len(commercial_rows)} matching documents. "
+            "Key entries:\n"
+            + "\n".join(f"- {row}" for row in rendered_rows)
+            + suffix
+        )
 
     def _summarize_document_findings(
         self,
@@ -5414,6 +6142,22 @@ class DocumentService:
             seen_terms.add(term)
             deduped_terms.append(term)
         return deduped_terms
+
+    def _generic_document_reference_terms(self) -> set[str]:
+        terms = {
+            "document",
+            "documents",
+            "file",
+            "files",
+            "doc",
+            "docs",
+            "uploaded",
+            "upload",
+        }
+        for aliases in self.DOCUMENT_TYPE_ALIASES.values():
+            for alias in aliases:
+                terms.update(re.findall(r"[a-z0-9]{2,}", self._normalize_document_name(alias)))
+        return terms
 
     def _score_chunk(self, content: str, terms: list[str]) -> int:
         lowered = content.lower()

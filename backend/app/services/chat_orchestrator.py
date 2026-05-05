@@ -78,32 +78,28 @@ class ChatOrchestrator:
             is_admin=is_admin,
             viewer_username=viewer_username,
         )
-        if direct_reply and (
-            self.retrieval_service.document_service.is_document_inventory_query(
-                user_message
-            )
-            or self.retrieval_service.document_service.is_document_similarity_query(
-                user_message
-            )
-            or self.retrieval_service.document_service.is_document_version_query(
-                user_message
-            )
-            or self.retrieval_service.document_service.is_document_change_query(
-                user_message
-            )
-            or self.retrieval_service.document_service.is_document_conflict_query(
-                user_message
-            )
-            or self.retrieval_service.document_service.is_document_metadata_inventory_query(
-                user_message
-            )
-        ):
-            sources = []
-            retrieval_result.sources = []
-            retrieval_result.debug.returned_sources = 0
-            retrieval_result.debug.mode = "none"
         retrieval_result.debug.grounded_reply_used = direct_reply is not None
         if direct_reply:
+            direct_sources = self.retrieval_service.sources_for_direct_document_reply(
+                query=user_message,
+                reply=direct_reply,
+                fallback_sources=sources,
+                limit=settings.retrieval_limit,
+                allowed_document_ids=payload.document_ids,
+                history=payload.history,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            sources = direct_sources
+            retrieval_result.sources = direct_sources
+            retrieval_result.debug.returned_sources = len(direct_sources)
+            retrieval_result.debug.top_source_score = (
+                round(direct_sources[0].score, 4) if direct_sources else 0.0
+            )
+            if direct_sources and retrieval_result.debug.mode == "none":
+                retrieval_result.debug.mode = "term"
+            if direct_sources and retrieval_result.debug.confidence == "low":
+                retrieval_result.debug.confidence = "medium"
             reply = direct_reply
         elif sources and retrieval_result.debug.document_reference:
             retrieval_result.debug.grounded_reply_used = True

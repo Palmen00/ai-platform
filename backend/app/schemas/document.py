@@ -99,6 +99,7 @@ class DocumentRecord(BaseModel):
     stored_name: str
     content_type: str
     size_bytes: int
+    content_sha256: str | None = None
     uploaded_at: str
     source_origin: str = "upload"
     source_connector_id: str | None = None
@@ -162,8 +163,23 @@ class DocumentListResponse(BaseModel):
     available_source_facets: list[DocumentFacetOption] = Field(default_factory=list)
 
 
+class DocumentDuplicateMatch(BaseModel):
+    document_id: str
+    document_name: str
+    match_type: str
+    confidence: str
+    reason: str | None = None
+
+
+class DocumentUploadWarning(BaseModel):
+    type: str
+    message: str
+    matches: list[DocumentDuplicateMatch] = Field(default_factory=list)
+
+
 class DocumentUploadResponse(BaseModel):
     document: DocumentRecord
+    warnings: list[DocumentUploadWarning] = Field(default_factory=list)
 
 
 class DocumentSecurityUpdateRequest(BaseModel):

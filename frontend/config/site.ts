@@ -76,6 +76,41 @@ export const siteConfig = {
     scopeHelper:
       "Limit retrieval to specific processed documents when you want tighter answers.",
     composerHint: "Enter to send. Shift+Enter for a new line.",
+    draftToolsTitle: "Writing workspace",
+    draftToolsHint:
+      "Choose an output type, then let the assistant draft from the selected or retrieved documents.",
+    draftToolSelectLabel: "Output type",
+    draftToolApplyLabel: "Use template",
+    draftTools: [
+      {
+        id: "customer-email",
+        label: "Customer email",
+        description: "Turn an incident or case file into a clear reply.",
+        prompt:
+          "Draft a customer email using the uploaded documents as the source of truth. Start with a short subject line, then write a professional but human reply. Include what happened, current status, next steps, and any information we still need. Do not invent facts; mark unknowns as placeholders.",
+      },
+      {
+        id: "incident-report",
+        label: "Incident report",
+        description: "Create a structured incident summary.",
+        prompt:
+          "Write an incident report based only on the uploaded documents. Use sections: Executive summary, Timeline, Impact, Root cause or likely cause, Actions taken, Open risks, Recommended next steps, and Missing information. Keep claims grounded in the documents.",
+      },
+      {
+        id: "management-summary",
+        label: "Management summary",
+        description: "Compress many files into decision-ready notes.",
+        prompt:
+          "Create a management summary from the relevant uploaded documents. Lead with the most important conclusion, then list key facts, risks, costs or amounts if available, decisions needed, and recommended next actions. Keep it concise and source-grounded.",
+      },
+      {
+        id: "action-plan",
+        label: "Action plan",
+        description: "Extract owners, tasks, and follow-ups.",
+        prompt:
+          "Create an action plan from the uploaded documents. Use a table-like format with Task, Owner if known, Deadline if known, Evidence, and Priority. If owner or deadline is not present, write Unknown instead of guessing.",
+      },
+    ],
     initialAssistantMessage: "Welcome to Local AI OS.",
     clearedAssistantMessage: "Chat cleared.",
     labels: {
@@ -112,6 +147,9 @@ export const siteConfig = {
     },
     sourcesTitle: "Sources",
     sourceOpenLabel: "Open source",
+    sourceAskLabel: "Ask about this source",
+    sourcePreviewLabel: "Preview excerpt",
+    sourceCompareLabel: "Compare",
     sourceScoreLabel: "Score",
     sourceOcrLabel: "OCR",
     sourceOcrHint:
@@ -254,6 +292,9 @@ export const siteConfig = {
       uploadSuccessPlural: "files uploaded.",
       uploadQueued: "Document uploaded and queued for processing.",
       uploadQueuedPlural: "files uploaded and queued for processing.",
+      duplicateUploadTitle: "Potential duplicate detected",
+      duplicateUploadHint:
+        "The file was still uploaded. Review the match below and delete one copy if it is not needed.",
       uploadError: "Could not upload document.",
       deleteError: "Could not delete document.",
       processQueued: "Document queued for reprocessing.",

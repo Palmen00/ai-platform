@@ -7,13 +7,14 @@ import {
   DocumentItem,
   DocumentPreview,
   DocumentSecurityUpdateInput,
+  DocumentUploadWarning,
   getDocumentPreview,
   getDocuments,
   processDocument,
   reprocessAllDocuments,
   retryIncompleteDocuments,
   updateDocumentSecurity,
-  uploadDocument,
+  uploadDocumentWithWarnings,
 } from "../../../lib/api";
 import { siteConfig } from "../../../config/site";
 
@@ -33,6 +34,7 @@ export function useDocuments() {
   const [processingDocumentId, setProcessingDocumentId] = useState("");
   const [error, setError] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [uploadWarnings, setUploadWarnings] = useState<DocumentUploadWarning[]>([]);
   const [preview, setPreview] = useState<DocumentPreview | null>(null);
   const [previewError, setPreviewError] = useState("");
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
@@ -91,17 +93,21 @@ export function useDocuments() {
     setIsUploading(true);
     setError("");
     setStatusMessage("");
+    setUploadWarnings([]);
 
     try {
       const uploadedDocuments: DocumentItem[] = [];
+      const nextUploadWarnings: DocumentUploadWarning[] = [];
 
       for (const file of files) {
-        const document = await uploadDocument(file);
-        uploadedDocuments.push(document);
+        const payload = await uploadDocumentWithWarnings(file);
+        uploadedDocuments.push(payload.document);
+        nextUploadWarnings.push(...payload.warnings);
       }
 
       setDocuments((current) => [...uploadedDocuments.reverse(), ...current]);
       setTotalCount((current) => current + uploadedDocuments.length);
+      setUploadWarnings(nextUploadWarnings);
       setStatusMessage(
         uploadedDocuments.length > 1
           ? `${uploadedDocuments.length} ${siteConfig.knowledge.messages.uploadQueuedPlural}`
@@ -123,6 +129,7 @@ export function useDocuments() {
   async function removeDocument(documentId: string) {
     setError("");
     setStatusMessage("");
+    setUploadWarnings([]);
 
     try {
       await deleteDocument(documentId);
@@ -141,6 +148,7 @@ export function useDocuments() {
   async function reprocessDocument(documentId: string) {
     setError("");
     setStatusMessage("");
+    setUploadWarnings([]);
     setProcessingDocumentId(documentId);
 
     try {
@@ -164,6 +172,7 @@ export function useDocuments() {
   ) {
     setError("");
     setStatusMessage("");
+    setUploadWarnings([]);
 
     try {
       const updatedDocument = await updateDocumentSecurity(documentId, payload);
@@ -208,6 +217,7 @@ export function useDocuments() {
   async function retryIncompleteIndexing() {
     setError("");
     setStatusMessage("");
+    setUploadWarnings([]);
     setIsRetryingIncomplete(true);
 
     try {
@@ -235,6 +245,7 @@ export function useDocuments() {
   async function reprocessEveryDocument() {
     setError("");
     setStatusMessage("");
+    setUploadWarnings([]);
     setIsReprocessingAll(true);
 
     try {
@@ -362,6 +373,7 @@ export function useDocuments() {
     processingDocumentId,
     error,
     statusMessage,
+    uploadWarnings,
     preview,
     previewError,
     isPreviewLoading,
