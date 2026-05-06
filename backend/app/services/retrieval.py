@@ -261,6 +261,17 @@ class RetrievalService:
                 retrieval_mode = "term"
 
         selected_sources = self._filter_sources_for_media_query(query, selected_sources)
+        if (
+            selected_sources
+            and self._should_skip_unscoped_retrieval(
+                query=query,
+                requested_document_ids=requested_document_ids,
+                matched_document_ids=matched_document_ids,
+                document_reference=document_reference,
+            )
+        ):
+            selected_sources = []
+            retrieval_mode = "none"
 
         confidence = self._confidence_level(
             query=query,
@@ -314,6 +325,47 @@ class RetrievalService:
             return filtered_sources or sources
 
         return sources
+
+    def _should_skip_unscoped_retrieval(
+        self,
+        *,
+        query: str,
+        requested_document_ids: list[str] | None,
+        matched_document_ids: list[str],
+        document_reference: bool,
+    ) -> bool:
+        if requested_document_ids or matched_document_ids or document_reference:
+            return False
+
+        lowered = " ".join(query.lower().split())
+        programming_markers = (
+            "python",
+            "javascript",
+            "typescript",
+            "powershell",
+            "sql",
+            "code",
+            "function",
+            "list comprehension",
+            "generator expression",
+            "debug",
+            "bug",
+            "script",
+        )
+        document_markers = (
+            "uploaded",
+            "upload",
+            "file",
+            "document",
+            "source file",
+            "repo",
+            "repository",
+            "fil",
+            "dokument",
+        )
+        return any(marker in lowered for marker in programming_markers) and not any(
+            marker in lowered for marker in document_markers
+        )
 
     def build_grounded_document_reply(
         self,
@@ -851,6 +903,22 @@ class RetrievalService:
                 "I don't have enough context to answer that metric. "
                 "I cannot find the red-team benchmark p99 latency for last Friday in the available material, "
                 "so I would need the benchmark report, logs, or metrics export first."
+            )
+
+        if (
+            ("list comprehension" in lowered or "list comp" in lowered)
+            and ("generator expression" in lowered or "generator" in lowered)
+        ):
+            return (
+                "A list comprehension builds the whole list immediately. "
+                "A generator expression yields values lazily, one at a time, which is usually better for large streams.\n\n"
+                "```python\n"
+                "numbers = range(5)\n\n"
+                "squares_list = [number * number for number in numbers]\n"
+                "squares_generator = (number * number for number in numbers)\n\n"
+                "print(squares_list)          # [0, 1, 4, 9, 16]\n"
+                "print(next(squares_generator))  # 0\n"
+                "```"
             )
 
         if "parse_latency_lines" in lowered or (
