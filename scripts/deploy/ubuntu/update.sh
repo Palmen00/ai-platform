@@ -28,10 +28,10 @@ EOF
     git -C "${repo_root}" fetch --prune origin "${current_branch}"
     if git -C "${repo_root}" rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
       git -C "${repo_root}" pull --ff-only
-    elif git -C "${repo_root}" show-ref --verify --quiet "refs/remotes/origin/${current_branch}"; then
-      git -C "${repo_root}" merge --ff-only "origin/${current_branch}"
     elif git -C "${repo_root}" rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
       git -C "${repo_root}" merge --ff-only FETCH_HEAD
+    elif git -C "${repo_root}" show-ref --verify --quiet "refs/remotes/origin/${current_branch}"; then
+      git -C "${repo_root}" merge --ff-only "origin/${current_branch}"
     else
       echo "Skipping Git pull because branch ${current_branch} has no upstream, origin/${current_branch}, or FETCH_HEAD."
     fi
