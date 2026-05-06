@@ -7,7 +7,7 @@ server hardening pass.
 
 ## Candidate Commit
 
-- Current commit: `d3f832c`
+- Current commit: `c62a123`
 - Branch: `main`
 - Live server: `192.168.1.105`
 - Live server state: healthy and aligned to `main`
