@@ -9,11 +9,11 @@ The deployed server is reachable and healthy with:
 - backend status: `ok`
 - Ollama status: `ok`
 - Qdrant status: `ok`
-- uploaded documents: `154`
-- processed/indexed documents: `154 / 154`
+- uploaded documents: `165`
+- processed/indexed documents: `165 / 165`
 - failed documents: `0`
 - no known failed or unindexed document; `Google cert.pdf` has been retried and processed/indexed
-- document-intelligence maintenance still reports `1` stale/background item after refresh
+- document-intelligence stale/background backlog: `0`
 
 Latest live conversation checks:
 
@@ -26,10 +26,12 @@ Latest live conversation checks:
 - May 6 document follow-up regression: `11/11`
 - May 6 business document QA: `12/12`
 - May 6 Writing workspace: `4/4`
+- May 6 GitHub fresh install on isolated ports `3100/8100/6433`: passed
+- May 6 GitHub update flow after fresh install: passed
 
 Current source of truth:
 
-- the May 6 fixes are committed and pushed at `f08509e`, and the live server is
+- the May 6 fixes are committed and pushed through `d3f832c`, and the live server is
   aligned to `main`. A safety stash from the earlier manual deploy remains on
   the server, but the working tree is clean.
 
@@ -52,6 +54,8 @@ Current source of truth:
   choose than raw prompt buttons alone
 - Action-plan drafting now has a source-grounded structured fallback, so missing
   owners/deadlines are marked as `Unknown` instead of turning into a weak refusal
+- Customer-email drafting now has a source-grounded fallback that still produces
+  a usable email skeleton when the retrieved document lacks customer-specific details
 - Chat sources can now be opened, previewed, used as a direct question scope,
   or used as the starting point for a comparison against selected/similar
   sources
@@ -207,8 +211,8 @@ The project now has a functional MVP foundation running on a real Linux server w
 
 ## Highest-Priority Next Work
 
-- verify that a GitHub-based install/update reproduces commit `f08509e` on a clean server
-- add an operator-friendly flow for stale document-intelligence refreshes and stuck processing/indexing cases
+- run the next destructive reinstall only when the server can be safely wiped
+- keep the GitHub install/update smoke in the standard release-candidate gate
 - test the Writing workspace with more real incident/customer-style documents
   and decide whether it should become a separate Writing tab later
 - keep improving answer naturalness, source selection, and broad invoice summaries

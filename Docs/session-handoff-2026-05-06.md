@@ -8,17 +8,16 @@ hardening pass.
 The live server is healthy and aligned to the pushed May 6 commit.
 
 - server: `192.168.1.105`
-- commit: `f08509e`
+- commit: `d3f832c`
 - branch: `main`
 - backend: `ok`
 - Ollama: `ok`
 - Qdrant: `ok`
-- documents total: `154`
-- processed/indexed: `154 / 154`
+- documents total: `165`
+- processed/indexed: `165 / 165`
 - failed documents: `0`
 - `Google cert.pdf`: retried and no longer stuck
-- maintenance note: document intelligence still reports `1` stale/background item
-  after a manual refresh, but no document is failed or unindexed
+- document-intelligence stale/background backlog: `0`
 
 ## What Changed
 
@@ -32,6 +31,13 @@ The live server is healthy and aligned to the pushed May 6 commit.
   keep the requested structure and mark missing fields as `Unknown`.
 - Added a source-grounded action-plan fallback that creates a table with task,
   owner, deadline, priority, and evidence instead of producing a weak refusal.
+- Added a source-grounded customer-email fallback that still creates a usable
+  email draft when retrieved incident details are incomplete.
+- Hardened Ubuntu `update.sh` so GitHub-based installs can fast-forward from
+  upstream, `origin/<branch>`, or `FETCH_HEAD`, and marked deploy scripts
+  executable in Git.
+- Fixed weak OCR titles such as `Nr` by falling back to filename-derived
+  document family keys and labels.
 - Added `scripts/tests/run_writing_workspace_suite.py` so the Writing workspace
   can be retested consistently against the live server.
 
@@ -50,15 +56,18 @@ Live server checks:
 - document follow-up regression: `11/11`
 - business document QA: `12/12`
 - Writing workspace: `4/4`
+- GitHub fresh install on isolated ports `3100/8100/6433`: passed
+- GitHub update flow after fresh install: passed
 - final `/status`: backend, Ollama, and Qdrant all `ok`
 
 Reports:
 
 - `temp/system-stability/system-stability-20260506-081523.md`
+- `temp/system-stability/system-stability-20260506-100202.md`
 - `temp/invoice-document-qa/invoice-document-qa-20260506-083930.md`
 - `temp/document-followup-regression/followup-regression-20260506-085423.md`
 - `temp/business-document-qa/business-document-qa-20260506-090411.md`
-- `temp/writing-workspace/writing-workspace-20260506-093547.md`
+- `temp/writing-workspace/writing-workspace-20260506-101524.md`
 
 ## Important Caveat
 
@@ -70,7 +79,8 @@ to inspect that temporary state.
 
 ## Recommended Next Step
 
-1. Re-run the full GitHub link-install/update path on a clean server.
-2. Add an operator-friendly flow for stale document-intelligence refreshes.
-3. Continue expanding live document QA with real customer, invoice, incident,
+1. Keep GitHub install/update smoke in the release-candidate gate.
+2. Run the next destructive reinstall only when the server can be safely wiped.
+3. Add a visible operator button for stale document-intelligence refreshes.
+4. Continue expanding live document QA with real customer, invoice, incident,
    and report-writing scenarios.

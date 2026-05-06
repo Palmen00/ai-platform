@@ -14,11 +14,11 @@ Current live baseline:
 - backend health: `ok`
 - Ollama: `ok`
 - Qdrant: `ok`
-- uploaded documents: `154`
-- processed/indexed documents: `154 / 154`
+- uploaded documents: `165`
+- processed/indexed documents: `165 / 165`
 - failed documents: `0`
 - known stuck document: none; `Google cert.pdf` was retried and is now processed/indexed
-- maintenance note: document intelligence still reports `1` stale/background item after refresh, but no document is failed or unindexed
+- document-intelligence stale/background backlog: `0`
 - full live conversation suite before the final Swedish/natural-language patch: `26/30`
 - focused live regression after the final retrieval patch: `8/8`
 - live regression after source workflow, invoice-intelligence, and Writing
@@ -29,10 +29,12 @@ Current live baseline:
   - document follow-up regression: `11/11`
   - business document QA: `12/12`
   - Writing workspace: `4/4`
+  - GitHub fresh install on isolated ports `3100/8100/6433`: passed
+  - GitHub update flow after fresh install: passed
 
 Important current caveat:
 
-- the May 6 fixes are committed and pushed at `f08509e`, and the live server is
+- the May 6 fixes are committed and pushed through `d3f832c`, and the live server is
   now aligned to `main`. A safety stash from the earlier manual deploy remains
   on the server, but the working tree is clean.
 
@@ -98,8 +100,8 @@ Only after the core workflow is stable:
 
 ### Now
 
-- re-run the full link-install/update path from GitHub on a clean server so a
-  fresh install is proven against commit `f08509e`
+- keep the GitHub link-install/update smoke in the release-candidate gate
+- run the next destructive reinstall only when the server can be safely wiped
 - keep improving answer quality on natural business questions across invoices, receipts, contracts, and mixed document libraries
 - validate the new document-based draft helpers on real incident, support, and customer-email scenarios
 - keep evolving the first Writing workspace from chat templates into a clearer
@@ -208,6 +210,8 @@ Status: first writing-assistant path started.
   whole prompt
 - action-plan drafting now has a source-grounded structured fallback, so missing
   owners/deadlines are marked as `Unknown` instead of producing a weak refusal
+- customer-email drafting now has a source-grounded fallback that still produces
+  a usable email skeleton when the source lacks customer-specific detail
 - next decision is whether this remains a lightweight chat helper or becomes a dedicated Writing/Reports workspace
 
 ### Phase D: Evaluation And Reliability Checks
@@ -234,8 +238,8 @@ Status: started
 
 ### Next
 
-- verify that the public GitHub install/update path can reproduce commit `f08509e` on a clean server
-- add a safe operator flow for stale document-intelligence refreshes and stuck processing/indexing cases
+- keep validating the public GitHub install/update path against release-candidate commits
+- add a visible operator button for stale document-intelligence refreshes and stuck processing/indexing cases
 - keep the live duplicate-upload smoke test in the standard pre-push suite
 - expand the live conversation suite with more invoice/product/date questions from the real uploaded library
 - add a clearer regression threshold so we can say when a build is good enough to release
