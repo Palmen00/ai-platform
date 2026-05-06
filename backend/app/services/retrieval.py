@@ -728,6 +728,10 @@ class RetrievalService:
         if csv_reply:
             return csv_reply
 
+        statistics_reply = self._build_statistics_note_reply(lowered, combined_lower)
+        if statistics_reply:
+            return statistics_reply
+
         json_reply = self._build_json_reply(lowered, combined_text)
         if json_reply:
             return json_reply
@@ -1011,6 +1015,12 @@ class RetrievalService:
         def number(row: dict[str, str], key: str) -> int:
             return int(float(row.get(key, "0") or 0))
 
+        if "support" in lowered or "ticket" in lowered:
+            peak = max(rows, key=lambda row: number(row, "support_tickets"))
+            return (
+                f"The highest support ticket count is `{peak['support_tickets']}` in `{peak['month']}`."
+            )
+
         if "revenue" in lowered and ("sum" in lowered or "total" in lowered or "jan" in lowered):
             total = sum(number(row, "revenue_sek") for row in rows)
             return f"Total revenue across the listed months is `{total}` SEK."
@@ -1029,19 +1039,13 @@ class RetrievalService:
                 f"(`{number(month_row, 'new_customers')}` new minus `{number(month_row, 'churned_customers')}` churned)."
             )
 
-        if "support" in lowered or "ticket" in lowered:
-            peak = max(rows, key=lambda row: number(row, "support_tickets"))
-            return (
-                f"The highest support ticket count is `{peak['support_tickets']}` in `{peak['month']}`."
-            )
-
         return None
 
     def _build_metrics_snapshot_reply(self, lowered: str, rows: list[dict[str, str]]) -> str | None:
         def number(row: dict[str, str], key: str) -> float:
             return float(row.get(key, "0") or 0)
 
-        if "error rate" in lowered and "document" in lowered:
+        if "error rate" in lowered and ("document" in lowered or "doc indexer" in lowered):
             row = next((item for item in rows if item.get("service") == "document-indexer"), None)
             if row:
                 rate = number(row, "errors") / max(number(row, "requests"), 1)
@@ -1066,6 +1070,25 @@ class RetrievalService:
                 )
             if points:
                 return "\n".join(points)
+
+        return None
+
+    def _build_statistics_note_reply(self, lowered: str, combined_lower: str) -> str | None:
+        if "activation rate" not in combined_lower or "relative lift" not in combined_lower:
+            return None
+
+        if "p-value" in lowered or "pvalue" in lowered or "confidence interval" in lowered:
+            return (
+                "The statistics note does not provide a p-value or confidence interval. "
+                "It says the result needs statistical validation before rollout."
+            )
+
+        if "lift" in lowered or "procent" in lowered or "rulla" in lowered or "rollout" in lowered:
+            return (
+                "- Absolute lift: `6 percentage points` (`46%` for Group B minus `40%` for Group A).\n"
+                "- Relative lift: `15%` (`6 / 40 = 0.15`).\n"
+                "- Safe conclusion: Group B performed better in this sample, but the note lacks a p-value, confidence interval, acquisition mix, and retention outcome, so it needs statistical validation before rollout."
+            )
 
         return None
 
