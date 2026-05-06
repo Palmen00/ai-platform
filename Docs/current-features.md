@@ -31,9 +31,11 @@ Latest live conversation checks:
 
 Current source of truth:
 
-- the May 6 fixes are committed and pushed through `4f33191`, and the live server is
-  aligned to `main`. A safety stash from the earlier manual deploy remains on
-  the server, but the working tree is clean.
+- the May 6 fixes are committed and pushed to `main`; the live server is aligned
+  to the validated runtime baseline. Later commits may update release/status
+  documentation without changing the tested runtime behavior. A safety stash
+  from the earlier manual deploy remains on the server, but the working tree is
+  clean.
 
 ## Implemented
 

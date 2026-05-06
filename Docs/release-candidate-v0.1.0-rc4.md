@@ -7,7 +7,7 @@ server hardening pass.
 
 ## Candidate Commit
 
-- Current commit: `4f33191`
+- Source: current `main` with the May 6 validated runtime baseline
 - Branch: `main`
 - Live server: `192.168.1.105`
 - Live server state: healthy and aligned to `main`

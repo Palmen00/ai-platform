@@ -8,7 +8,7 @@ hardening pass.
 The live server is healthy and aligned to the pushed May 6 commit.
 
 - server: `192.168.1.105`
-- commit: `4f33191`
+- source: current `main` with the May 6 validated runtime baseline
 - branch: `main`
 - backend: `ok`
 - Ollama: `ok`
