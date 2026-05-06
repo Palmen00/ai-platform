@@ -1067,7 +1067,7 @@ class RetrievalService:
                 "- Run `./scripts/deploy/ubuntu/verify.sh` after the update.\n"
                 "- Ask the user to sign out and sign in again so stale session state is cleared.\n"
                 "- If older chats still fail, inspect `/app/data/app/conversations` and confirm each conversation has the expected `owner_username`.\n"
-                "- Do not delete the entire data directory as the first action because it can remove uploaded documents, vectors, and saved chats."
+                "- Avoid destructive data-directory cleanup first because it can remove uploaded documents, vectors, and saved chats."
             )
 
         if (
@@ -1530,16 +1530,17 @@ class RetrievalService:
             )
             selected_document_ids = [document.id for document in metadata_documents[:limit]]
 
-        if (
-            not selected_document_ids
-            and allowed_document_id_set
-            and len(allowed_document_id_set) <= max(limit, 3)
-        ):
-            selected_document_ids = [
-                document.id
-                for document in visible_documents
-                if document.id in allowed_document_id_set
-            ][:limit]
+        if allowed_document_id_set and len(allowed_document_id_set) <= max(limit, 3):
+            existing_document_ids = set(selected_document_ids)
+            for document in visible_documents:
+                if document.id not in allowed_document_id_set:
+                    continue
+                if document.id in existing_document_ids:
+                    continue
+                selected_document_ids.append(document.id)
+                existing_document_ids.add(document.id)
+                if len(selected_document_ids) >= limit:
+                    break
 
         if not selected_document_ids and fallback_sources:
             return fallback_sources[:limit]
