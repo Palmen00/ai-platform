@@ -246,6 +246,20 @@ class RetrievalService:
             if selected_sources:
                 retrieval_mode = "term"
 
+        if (
+            not selected_sources
+            and requested_document_ids
+            and len(requested_document_ids) <= max(limit, 3)
+        ):
+            selected_sources = self.document_service.recent_sources_for_document_ids(
+                requested_document_ids[:limit],
+                limit=limit,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if selected_sources:
+                retrieval_mode = "term"
+
         selected_sources = self._filter_sources_for_media_query(query, selected_sources)
 
         confidence = self._confidence_level(
