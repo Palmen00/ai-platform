@@ -32,9 +32,9 @@ Current live baseline:
 
 Important current caveat:
 
-- the May 6 fixes are applied locally and deployed manually to the server, but
-  the GitHub push is blocked by local GitHub credentials. Until that is fixed,
-  the public install/update path will not reproduce the exact live server state.
+- the May 6 fixes are committed and pushed at `f08509e`, and the live server is
+  now aligned to `main`. A safety stash from the earlier manual deploy remains
+  on the server, but the working tree is clean.
 
 ## Phase 1: Foundation
 
@@ -98,9 +98,8 @@ Only after the core workflow is stable:
 
 ### Now
 
-- finish committing the latest deployed retrieval, document QA, and Writing workspace fixes
-- refresh GitHub credentials and push the May 6 commits
-- re-run the link-install/update path from GitHub after the push so a fresh server receives the same fixes
+- re-run the full link-install/update path from GitHub on a clean server so a
+  fresh install is proven against commit `f08509e`
 - keep improving answer quality on natural business questions across invoices, receipts, contracts, and mixed document libraries
 - validate the new document-based draft helpers on real incident, support, and customer-email scenarios
 - keep evolving the first Writing workspace from chat templates into a clearer
@@ -235,8 +234,7 @@ Status: started
 
 ### Next
 
-- commit the current deployed code and resolve GitHub auth so it can be pushed
-- verify that the public GitHub install/update path can reproduce the current server state
+- verify that the public GitHub install/update path can reproduce commit `f08509e` on a clean server
 - add a safe operator flow for stale document-intelligence refreshes and stuck processing/indexing cases
 - keep the live duplicate-upload smoke test in the standard pre-push suite
 - expand the live conversation suite with more invoice/product/date questions from the real uploaded library

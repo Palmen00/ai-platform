@@ -5,9 +5,11 @@ hardening pass.
 
 ## Current Product State
 
-The live server is healthy and running the manually deployed May 6 backend fixes.
+The live server is healthy and aligned to the pushed May 6 commit.
 
 - server: `192.168.1.105`
+- commit: `f08509e`
+- branch: `main`
 - backend: `ok`
 - Ollama: `ok`
 - Qdrant: `ok`
@@ -56,21 +58,19 @@ Reports:
 - `temp/invoice-document-qa/invoice-document-qa-20260506-083930.md`
 - `temp/document-followup-regression/followup-regression-20260506-085423.md`
 - `temp/business-document-qa/business-document-qa-20260506-090411.md`
-- `temp/writing-workspace/writing-workspace-20260506-092806.md`
+- `temp/writing-workspace/writing-workspace-20260506-093547.md`
 
 ## Important Caveat
 
-The current server contains manually copied backend files because the GitHub
-push is blocked by local GitHub credentials.
+The current fixes are pushed and the live server is aligned to `main`.
 
-Until credentials are refreshed and the commits are pushed, a fresh public
-GitHub install/update will not reproduce the exact live server state.
+A safety stash named `codex-manual-deploy-2026-05-06` remains on the server from
+the earlier manual deploy. It should not be applied unless we intentionally need
+to inspect that temporary state.
 
 ## Recommended Next Step
 
-1. Commit the May 6 remaining changes locally.
-2. Refresh GitHub credentials and push.
-3. Re-align the live server with GitHub using the normal update/install path.
-4. Add an operator-friendly flow for stale document-intelligence refreshes.
-5. Continue expanding live document QA with real customer, invoice, incident,
+1. Re-run the full GitHub link-install/update path on a clean server.
+2. Add an operator-friendly flow for stale document-intelligence refreshes.
+3. Continue expanding live document QA with real customer, invoice, incident,
    and report-writing scenarios.

@@ -27,12 +27,11 @@ Latest live conversation checks:
 - May 6 business document QA: `12/12`
 - May 6 Writing workspace: `4/4`
 
-Current source of truth caveat:
+Current source of truth:
 
-- the May 6 fixes are deployed to the server and present locally, but the
-  GitHub push is blocked by local GitHub credentials. Future GitHub
-  installs/updates will not include them until credentials are refreshed and
-  the commits are pushed.
+- the May 6 fixes are committed and pushed at `f08509e`, and the live server is
+  aligned to `main`. A safety stash from the earlier manual deploy remains on
+  the server, but the working tree is clean.
 
 ## Implemented
 
@@ -208,8 +207,7 @@ The project now has a functional MVP foundation running on a real Linux server w
 
 ## Highest-Priority Next Work
 
-- commit the current local/server changes and resolve GitHub auth so they can be pushed
-- verify that a GitHub-based install/update gets the same code that is currently deployed manually on the server
+- verify that a GitHub-based install/update reproduces commit `f08509e` on a clean server
 - add an operator-friendly flow for stale document-intelligence refreshes and stuck processing/indexing cases
 - test the Writing workspace with more real incident/customer-style documents
   and decide whether it should become a separate Writing tab later
