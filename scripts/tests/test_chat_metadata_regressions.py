@@ -143,6 +143,17 @@ def main() -> None:
             currency="SEK",
             line_item="Mobile subscription",
         )
+        short_title_invoice = documents_module.DocumentRecord(
+            id="short-title-invoice",
+            original_name="Försäljningsfaktura 4514149.pdf",
+            stored_name="short-title-invoice.pdf",
+            content_type="application/pdf",
+            size_bytes=0,
+            uploaded_at="2020-01-01T00:00:00+00:00",
+            document_title="Nr",
+        )
+        short_title_family_key = service._derive_document_family_key(short_title_invoice)
+        short_title_family_label = service._derive_document_family_label(short_title_invoice)
 
         retrieval = retrieval_module.RetrievalService()
         results = [
@@ -235,6 +246,8 @@ def main() -> None:
         generic_code_question = "Can you help me code a c# for loop that says something?"
 
     assert "Newer_upload_older_date.pdf" in results[0]["reply"]
+    assert short_title_family_key == "försäljningsfaktura 4514149"
+    assert short_title_family_label == "Försäljningsfaktura 4514149"
     assert results[0]["sources"][0] == "Newer_upload_older_date.pdf"
     assert "Older_upload_newer_date.pdf" in results[1]["reply"]
     assert results[1]["sources"][0] == "Older_upload_newer_date.pdf"

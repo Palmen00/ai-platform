@@ -6912,8 +6912,32 @@ class DocumentService:
         return "General thematic overlap"
 
     def _derive_document_family_key(self, document: DocumentRecord) -> str | None:
-        base_name = Path(document.original_name).stem
-        candidate = document.document_title or base_name
+        for candidate in self._document_family_candidates(document):
+            normalized = self._normalize_document_family_candidate(candidate)
+            if normalized and len(normalized) >= 4:
+                return normalized[:120]
+        return None
+
+    def _derive_document_family_label(self, document: DocumentRecord) -> str | None:
+        family_key = self._derive_document_family_key(document)
+        if not family_key:
+            return None
+
+        for candidate in self._document_family_candidates(document):
+            normalized = self._normalize_document_family_candidate(candidate)
+            if normalized and len(normalized) >= 4:
+                label = self._clean_document_family_label(candidate)
+                return label[:120] if label else family_key.title()
+        return family_key.title()
+
+    def _document_family_candidates(self, document: DocumentRecord) -> list[str]:
+        candidates: list[str] = []
+        if document.document_title:
+            candidates.append(document.document_title)
+        candidates.append(Path(document.original_name).stem)
+        return candidates
+
+    def _normalize_document_family_candidate(self, candidate: str) -> str:
         normalized = self._normalize_document_name(candidate)
         normalized = re.sub(r"^\d{8}-\d{6}-", "", normalized)
         normalized = re.sub(
@@ -6928,31 +6952,22 @@ class DocumentService:
         )
         normalized = re.sub(r"\b(?:copy|final|draft)\b", " ", normalized)
         normalized = re.sub(r"[_-]+", " ", normalized)
-        normalized = " ".join(normalized.split())
-        if not normalized or len(normalized) < 4:
-            return None
-        return normalized[:120]
+        return " ".join(normalized.split())
 
-    def _derive_document_family_label(self, document: DocumentRecord) -> str | None:
-        family_key = self._derive_document_family_key(document)
-        if not family_key:
-            return None
-
-        candidate = document.document_title or Path(document.original_name).stem
-        candidate = re.sub(r"^\d{8}-\d{6}-", "", candidate).strip()
-        candidate = re.sub(
+    def _clean_document_family_label(self, candidate: str) -> str:
+        label = re.sub(r"^\d{8}-\d{6}-", "", candidate).strip()
+        label = re.sub(
             r"\b(?:v|ver|version|rev|revision)[._ -]*\d+\b",
             "",
-            candidate,
+            label,
             flags=re.IGNORECASE,
         )
-        candidate = re.sub(
+        label = re.sub(
             r"\b20\d{2}[._-]?(?:0[1-9]|1[0-2])(?:[._-]?(?:0[1-9]|[12]\d|3[01]))?\b",
             "",
-            candidate,
+            label,
         )
-        candidate = " ".join(candidate.replace("_", " ").replace("-", " ").split())
-        return candidate[:120] if candidate else family_key.title()
+        return " ".join(label.replace("_", " ").replace("-", " ").split())
 
     def _derive_document_version(
         self,
