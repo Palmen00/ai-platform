@@ -1,4 +1,5 @@
 import hashlib
+import csv
 import json
 import mimetypes
 import re
@@ -3216,6 +3217,15 @@ class DocumentService:
         is_admin: bool = False,
         viewer_username: str | None = None,
     ) -> str | None:
+        identifier_answer = self._summarize_invoice_identifier_lookup(
+            query,
+            allowed_document_ids=allowed_document_ids,
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        )
+        if identifier_answer:
+            return identifier_answer
+
         if self.is_multi_document_invoice_facts_query(query):
             resolved_document_ids = self.find_referenced_documents(
                 query,
@@ -3308,6 +3318,112 @@ class DocumentService:
             f"The invoice details in {document.original_name} are: "
             f"{'; '.join(details)}.{product_suffix}"
         )
+
+    def _summarize_invoice_identifier_lookup(
+        self,
+        query: str,
+        *,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> str | None:
+        invoice_identifier = self._extract_invoice_identifier(query)
+        if not invoice_identifier:
+            return None
+
+        allowed_document_id_set = set(allowed_document_ids or [])
+        identifier_key = self._compact_identifier(invoice_identifier)
+        for document in self._filter_documents_for_viewer(
+            self.list_documents(),
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        ):
+            if allowed_document_id_set and document.id not in allowed_document_id_set:
+                continue
+            if document.processing_status != "processed":
+                continue
+
+            extracted_text = self.get_extracted_text(document.id)
+            if not extracted_text:
+                continue
+            if identifier_key not in self._compact_identifier(extracted_text):
+                continue
+
+            amount = self._extract_amount_near_identifier(
+                extracted_text,
+                invoice_identifier,
+            )
+            if amount:
+                return (
+                    f"Invoice {invoice_identifier} is listed in "
+                    f"{document.original_name} with amount {amount}."
+                )
+            return f"Invoice {invoice_identifier} is mentioned in {document.original_name}."
+
+        return None
+
+    def _extract_invoice_identifier(self, query: str) -> str | None:
+        match = re.search(r"\b([A-Za-z]{2,}[-_ ]?\d{2,})\b", query)
+        if not match:
+            return None
+        value = match.group(1).strip().replace("_", "-").replace(" ", "-")
+        if value.lower() in {"q2", "q3", "q4"}:
+            return None
+        if not any(character.isdigit() for character in value):
+            return None
+        return value.upper()
+
+    def _compact_identifier(self, value: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+    def _extract_amount_near_identifier(
+        self,
+        extracted_text: str,
+        invoice_identifier: str,
+    ) -> str | None:
+        identifier_key = self._compact_identifier(invoice_identifier)
+        for raw_line in extracted_text.replace("\r", "\n").splitlines():
+            line = raw_line.strip()
+            if not line or identifier_key not in self._compact_identifier(line):
+                continue
+
+            csv_values: list[str] = []
+            if "," in line or ";" in line or "\t" in line:
+                delimiter = "," if "," in line else ";" if ";" in line else "\t"
+                try:
+                    csv_values = next(csv.reader([line], delimiter=delimiter))
+                except (csv.Error, StopIteration):
+                    csv_values = []
+
+            candidates = csv_values or re.split(r"\s{2,}|\s+\|\s+|\t", line)
+            numeric_values: list[str] = []
+            for candidate in candidates:
+                cleaned = candidate.strip()
+                if self._compact_identifier(cleaned) == identifier_key:
+                    continue
+                for number_match in re.finditer(
+                    r"(?<![A-Za-z])(?:\d{1,3}(?:[ .]\d{3})+|\d+)(?:[,.]\d{1,2})?(?![A-Za-z])",
+                    cleaned,
+                ):
+                    value = number_match.group(0).strip()
+                    if value and value not in numeric_values:
+                        numeric_values.append(value)
+
+            if numeric_values:
+                numeric_values.sort(
+                    key=lambda value: self._amount_sort_value(value),
+                    reverse=True,
+                )
+                return numeric_values[0]
+
+        return None
+
+    def _amount_sort_value(self, value: str) -> float:
+        normalized = str(value or "").replace(" ", "").replace(".", "").replace(",", ".")
+        try:
+            return float(normalized)
+        except ValueError:
+            return 0.0
 
     def summarize_invoice_extreme(
         self,
@@ -4027,6 +4143,12 @@ class DocumentService:
         self,
         processed_documents: list[DocumentRecord],
     ) -> str | None:
+        duplicate_name_summary = self._summarize_duplicate_name_groups(
+            processed_documents
+        )
+        if duplicate_name_summary:
+            return duplicate_name_summary
+
         family_summaries = [
             summary
             for summary in self._build_family_summaries(processed_documents)
@@ -4076,6 +4198,68 @@ class DocumentService:
         if additional_families:
             response += f" Other repeated families include {additional_families}."
         return response
+
+    def _summarize_duplicate_name_groups(
+        self,
+        processed_documents: list[DocumentRecord],
+    ) -> str | None:
+        groups: dict[str, list[DocumentRecord]] = {}
+        for document in processed_documents:
+            normalized_name = self._normalize_duplicate_document_name(
+                document.original_name
+            )
+            if not normalized_name:
+                continue
+            groups.setdefault(normalized_name, []).append(document)
+
+        duplicate_groups = [
+            group
+            for group in groups.values()
+            if len({document.id for document in group}) >= 2
+        ]
+        if not duplicate_groups:
+            return None
+
+        duplicate_groups.sort(
+            key=lambda group: (
+                len(group),
+                max(document.uploaded_at or "" for document in group),
+            ),
+            reverse=True,
+        )
+        strongest_group = duplicate_groups[0]
+        strongest_names = self._distinct_document_names(strongest_group)
+        if len(strongest_names) < 2:
+            return None
+
+        response = (
+            "I found duplicate-looking uploads. The clearest similar pair is "
+            f"{strongest_names[0]} and {strongest_names[1]}."
+        )
+        if len(strongest_group) > 2:
+            response += f" That duplicate group has {len(strongest_group)} uploads."
+
+        additional_pairs: list[str] = []
+        for group in duplicate_groups[1:4]:
+            names = self._distinct_document_names(group)
+            if len(names) >= 2:
+                additional_pairs.append(f"{names[0]} and {names[1]}")
+        if additional_pairs:
+            response += (
+                " Other similar pairs include "
+                f"{'; '.join(additional_pairs)}."
+            )
+        return response
+
+    def _distinct_document_names(
+        self,
+        documents: list[DocumentRecord],
+    ) -> list[str]:
+        names: list[str] = []
+        for document in documents:
+            if document.original_name and document.original_name not in names:
+                names.append(document.original_name)
+        return names
 
     def semantic_sources_match_query(
         self, query: str, sources: list[ChatSource]
@@ -5170,6 +5354,7 @@ class DocumentService:
             character for character in normalized if not unicodedata.combining(character)
         )
         normalized = normalized.lower().replace("_", " ").replace("-", " ")
+        normalized = re.sub(r"^\d{8}\s+\d{6}\s+", "", normalized)
         normalized = re.sub(r"\s*\(\d+\)\s*$", "", normalized)
         normalized = re.sub(r"\bcopy\b|\bkopia\b", "", normalized)
         normalized = re.sub(r"\s+", " ", normalized).strip()
@@ -5450,6 +5635,10 @@ class DocumentService:
                 "cn code",
                 "invoice",
                 "invoice fs",
+                "learn more",
+                "help center",
+                "detailed view",
+                "total due",
             )
         ):
             return False

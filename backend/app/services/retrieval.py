@@ -365,6 +365,9 @@ class RetrievalService:
                 return entity_answer
 
         if self._is_document_writing_task_query(query):
+            action_plan = self._draft_action_plan_from_sources(query, sources)
+            if action_plan:
+                return action_plan
             return None
 
         if self.document_service.is_invoice_extreme_query(query):
@@ -464,6 +467,13 @@ class RetrievalService:
             )
             if risk_answer:
                 return risk_answer
+
+        structured_value_answer = self._summarize_structured_value_from_sources(
+            query,
+            sources,
+        )
+        if structured_value_answer:
+            return structured_value_answer
 
         if not (
             self.document_service.is_document_reference_query(query)
@@ -894,6 +904,67 @@ class RetrievalService:
             marker in lowered for marker in artifact_markers
         )
 
+    def _draft_action_plan_from_sources(
+        self,
+        query: str,
+        sources: list[ChatSource],
+    ) -> str | None:
+        lowered = " ".join(query.lower().split())
+        if not any(
+            marker in lowered
+            for marker in ("action plan", "handlingsplan", "åtgärdsplan")
+        ):
+            return None
+        if not sources:
+            return None
+
+        rows: list[tuple[str, str, str, str, str]] = []
+        seen_documents: set[str] = set()
+        for source in sources[:4]:
+            if source.document_id in seen_documents:
+                continue
+            seen_documents.add(source.document_id)
+            code = self._extract_reference_code(source.excerpt)
+            subject = code or (source.section_title or source.detected_document_type or "document")
+            task = f"Review {subject} and confirm required follow-up"
+            if "incident" in lowered or "incident" in source.excerpt.lower():
+                task = f"Review incident {subject} and confirm impact, owner, and next step"
+            evidence = self._format_source_evidence(source)
+            rows.append((task, "Unknown", "Unknown", "Medium", evidence))
+
+        if not rows:
+            return None
+
+        lines = [
+            "Here is a best-effort action plan based only on the provided document context.",
+            "",
+            "| Task | Owner | Deadline | Priority | Evidence |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+        for task, owner, deadline, priority, evidence in rows:
+            lines.append(f"| {task} | {owner} | {deadline} | {priority} | {evidence} |")
+        lines.extend(
+            [
+                "",
+                "Missing information: owner, deadline, and concrete remediation steps are not explicit in the provided sources.",
+            ]
+        )
+        return "\n".join(lines)
+
+    def _extract_reference_code(self, text: str) -> str | None:
+        match = re.search(r"\b[A-Z]{2,}[-_ ]?\d{2,}\b", text or "")
+        if not match:
+            return None
+        return match.group(0).replace("_", "-").replace(" ", "-")
+
+    def _format_source_evidence(self, source: ChatSource) -> str:
+        parts = [source.document_name]
+        if source.section_title:
+            parts.append(source.section_title)
+        if source.page_number:
+            parts.append(f"page {source.page_number}")
+        return " / ".join(part for part in parts if part)
+
     def _wants_document_type_inventory(self, query: str) -> bool:
         lowered = " ".join(query.lower().split())
         markers = (
@@ -1068,6 +1139,50 @@ class RetrievalService:
         if not deduped_facts:
             return []
         return [f"Important extracted details include {self._join_phrases(deduped_facts)}."]
+
+    def _summarize_structured_value_from_sources(
+        self,
+        query: str,
+        sources: list[ChatSource],
+    ) -> str | None:
+        if not sources:
+            return None
+
+        lowered = " ".join(query.lower().split())
+        if "port" not in lowered:
+            return None
+        if not any(marker in lowered for marker in ("xml", "config", "service")):
+            return None
+
+        for source in sources:
+            source_kind = (source.source_kind or "").lower()
+            if source_kind not in {"config", "xml", "text"}:
+                continue
+
+            text = self.document_service.get_extracted_text(source.document_id)
+            if not text:
+                text = source.excerpt
+
+            value = self._extract_config_port_value(text)
+            if value:
+                return (
+                    f"The configured service port in {source.document_name} is "
+                    f"{value}."
+                )
+
+        return None
+
+    def _extract_config_port_value(self, text: str) -> str | None:
+        patterns = (
+            r"<port>\s*([0-9]{2,5})\s*</port>",
+            r"\bport\s*[:=]\s*([0-9]{2,5})\b",
+            r'"port"\s*:\s*"?([0-9]{2,5})"?',
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text, flags=re.IGNORECASE)
+            if match:
+                return match.group(1)
+        return None
 
     def _is_useful_key_fact(self, value: str) -> bool:
         cleaned = " ".join(str(value or "").split()).strip()

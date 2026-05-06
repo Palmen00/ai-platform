@@ -166,6 +166,18 @@ class OllamaService:
                 " document name when that makes the answer easier to scan."
             ),
             (
+                "Writing tasks: If the user asks you to draft an email, report,"
+                " management summary, or action plan, keep the requested output"
+                " structure. Use the section headings the user asked for, even when"
+                " some sections only contain 'Unknown from the provided documents'."
+                " Do not replace a requested draft with a loose explanation."
+                " Do not refuse the artifact just because details are missing;"
+                " create the best-effort draft and mark missing fields as Unknown."
+                " Never end with a sentence saying you cannot create the requested"
+                " email, report, summary, or action plan solely because source"
+                " details are incomplete."
+            ),
+            (
                 "If a passage looks OCR-derived or slightly noisy, do not mirror the"
                 " broken wording. Paraphrase the likely meaning conservatively into"
                 " normal language, and only mention uncertainty when the wording is"

@@ -1,6 +1,6 @@
 # Roadmap
 
-## Project Status - May 5, 2026
+## Project Status - May 6, 2026
 
 Status: MVP hardening on a real Linux server.
 
@@ -14,20 +14,27 @@ Current live baseline:
 - backend health: `ok`
 - Ollama: `ok`
 - Qdrant: `ok`
-- uploaded documents: `143`
-- processed/indexed documents: `142 / 142`
+- uploaded documents: `154`
+- processed/indexed documents: `154 / 154`
 - failed documents: `0`
-- known pending item: `Google cert.pdf` is still pending/indexing
+- known stuck document: none; `Google cert.pdf` was retried and is now processed/indexed
+- maintenance note: document intelligence still reports `1` stale/background item after refresh, but no document is failed or unindexed
 - full live conversation suite before the final Swedish/natural-language patch: `26/30`
 - focused live regression after the final retrieval patch: `8/8`
 - live regression after source workflow, invoice-intelligence, and Writing
   workspace work: `12/12`
+- May 6 live validation:
+  - system stability: passed
+  - invoice document QA: `8/8`
+  - document follow-up regression: `11/11`
+  - business document QA: `12/12`
+  - Writing workspace: `4/4`
 
 Important current caveat:
 
-- the latest fixes are applied locally and deployed to the server, but still need
-  to be committed and pushed before they are safely part of the GitHub install
-  path
+- the May 6 fixes are applied locally and deployed manually to the server, but
+  the GitHub push is blocked by local GitHub credentials. Until that is fixed,
+  the public install/update path will not reproduce the exact live server state.
 
 ## Phase 1: Foundation
 
@@ -91,9 +98,9 @@ Only after the core workflow is stable:
 
 ### Now
 
-- commit and push the latest deployed retrieval, duplicate-upload, and Knowledge UI fixes
+- finish committing the latest deployed retrieval, document QA, and Writing workspace fixes
+- refresh GitHub credentials and push the May 6 commits
 - re-run the link-install/update path from GitHub after the push so a fresh server receives the same fixes
-- clear or retry the one pending live document: `Google cert.pdf`
 - keep improving answer quality on natural business questions across invoices, receipts, contracts, and mixed document libraries
 - validate the new document-based draft helpers on real incident, support, and customer-email scenarios
 - keep evolving the first Writing workspace from chat templates into a clearer
@@ -144,6 +151,12 @@ Progress now includes:
 - invoice intelligence now also supports highest/lowest invoice questions,
   cleaner bullet-list output for multi-invoice/product answers, and line-item
   total fallback when parsed invoice totals are incomplete
+- retrieval now keeps named batches and explicit document-name markers scoped
+  during product/invoice inventory questions, so a prompt about one upload batch
+  does not bleed into unrelated invoice documents
+- direct document answers now include structured fallbacks for common business
+  lookups such as config/XML port values and explicit invoice identifiers like
+  `INV-77`
 - a representative `Unstructured` structure-eval suite now exists so title and section extraction can be measured before we adopt any new partitioning path
 - current `Unstructured` prototype results suggest the likely adoption target is PDF-heavy documents first, not structured `.txt` business documents where the in-house section logic currently performs better
 - the latest split `Unstructured` benchmark keeps reinforcing that: the PDF-focused suite is promising enough to keep exploring, while the structured-text suite remains clearly worse than the in-house parser
@@ -194,6 +207,8 @@ Status: first writing-assistant path started.
 - chat now has a first Writing workspace selector in the composer, so users can
   choose report/email/action-plan output types without manually crafting the
   whole prompt
+- action-plan drafting now has a source-grounded structured fallback, so missing
+  owners/deadlines are marked as `Unknown` instead of producing a weak refusal
 - next decision is whether this remains a lightweight chat helper or becomes a dedicated Writing/Reports workspace
 
 ### Phase D: Evaluation And Reliability Checks
@@ -214,13 +229,15 @@ Status: started
 - live regression now also covers auth remember-me, source-scoped chat,
   duplicate-upload warnings, invoice extremes, invoice follow-up dates, and
   general coding questions staying out of document mode
+- May 6 live QA reports now cover system stability, invoice QA, document
+  follow-ups, business document questions, and Writing workspace output shape
 - next step is to keep growing those suites across more document types, negative cases, and business-style answer checks
 
 ### Next
 
-- commit and push the current deployed code before further feature work
+- commit the current deployed code and resolve GitHub auth so it can be pushed
 - verify that the public GitHub install/update path can reproduce the current server state
-- add a safe "retry pending document" operator flow for stuck processing/indexing cases
+- add a safe operator flow for stale document-intelligence refreshes and stuck processing/indexing cases
 - keep the live duplicate-upload smoke test in the standard pre-push suite
 - expand the live conversation suite with more invoice/product/date questions from the real uploaded library
 - add a clearer regression threshold so we can say when a build is good enough to release

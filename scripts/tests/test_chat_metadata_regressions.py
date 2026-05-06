@@ -249,7 +249,11 @@ def main() -> None:
     assert "product-style information" in results[5]["reply"]
     assert "\n- " in results[5]["reply"]
     assert len(results[5]["sources"]) >= 2
-    assert writing_results == [None, None, None]
+    assert writing_results[0] is None
+    assert writing_results[1] is None
+    assert writing_results[2] is not None
+    assert "| Task | Owner | Deadline | Priority | Evidence |" in writing_results[2]
+    assert "Unknown" in writing_results[2]
     assert follow_up_invoice_date
     assert newer_by_date.original_name in follow_up_invoice_date
     assert "invoice date 2026-01-10" in follow_up_invoice_date

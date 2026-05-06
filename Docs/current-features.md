@@ -1,6 +1,6 @@
 # Current Features
 
-## Current Live Status - May 5, 2026
+## Current Live Status - May 6, 2026
 
 The project is currently in live-server MVP hardening.
 
@@ -9,10 +9,11 @@ The deployed server is reachable and healthy with:
 - backend status: `ok`
 - Ollama status: `ok`
 - Qdrant status: `ok`
-- uploaded documents: `143`
-- processed/indexed documents: `142 / 142`
+- uploaded documents: `154`
+- processed/indexed documents: `154 / 154`
 - failed documents: `0`
-- one known pending document: `Google cert.pdf`
+- no known failed or unindexed document; `Google cert.pdf` has been retried and processed/indexed
+- document-intelligence maintenance still reports `1` stale/background item after refresh
 
 Latest live conversation checks:
 
@@ -20,11 +21,18 @@ Latest live conversation checks:
 - focused regression after retrieval fixes: `8/8`
 - live auth/source/invoice/upload regression after source workflow and invoice
   improvements: `12/12`
+- May 6 system stability suite: passed
+- May 6 invoice document QA: `8/8`
+- May 6 document follow-up regression: `11/11`
+- May 6 business document QA: `12/12`
+- May 6 Writing workspace: `4/4`
 
 Current source of truth caveat:
 
-- the latest fixes are deployed to the server and present locally, but still need
-  to be committed and pushed so future GitHub installs/updates include them
+- the May 6 fixes are deployed to the server and present locally, but the
+  GitHub push is blocked by local GitHub credentials. Future GitHub
+  installs/updates will not include them until credentials are refreshed and
+  the commits are pushed.
 
 ## Implemented
 
@@ -43,6 +51,8 @@ Current source of truth caveat:
 - The chat composer now has a first "Writing workspace" selector so report,
   customer-email, management-summary, and action-plan templates are easier to
   choose than raw prompt buttons alone
+- Action-plan drafting now has a source-grounded structured fallback, so missing
+  owners/deadlines are marked as `Unknown` instead of turning into a weak refusal
 - Chat sources can now be opened, previewed, used as a direct question scope,
   or used as the starting point for a comparison against selected/similar
   sources
@@ -62,6 +72,10 @@ Current source of truth caveat:
   commercial metadata, use bullet lists for multi-invoice/product answers, and
   fall back to line-item totals when a parsed invoice has line items but no
   reliable top-level total
+- Named batch and explicit document-marker filtering now keeps invoice/product
+  inventory questions scoped to the requested upload batch or filename pattern
+- Structured direct answers now cover config/XML port lookups and explicit
+  invoice identifiers such as `INV-77` when those values appear in extracted text
 - Weighted document signal extraction for names, entities, titles, sections, and recurring terms
 - Embeddings plus Qdrant indexing
 - Reprocess and retry indexing actions
@@ -194,9 +208,9 @@ The project now has a functional MVP foundation running on a real Linux server w
 
 ## Highest-Priority Next Work
 
-- commit and push the current local/server changes
+- commit the current local/server changes and resolve GitHub auth so they can be pushed
 - verify that a GitHub-based install/update gets the same code that is currently deployed manually on the server
-- retry or resolve the one pending live document: `Google cert.pdf`
+- add an operator-friendly flow for stale document-intelligence refreshes and stuck processing/indexing cases
 - test the Writing workspace with more real incident/customer-style documents
   and decide whether it should become a separate Writing tab later
 - keep improving answer naturalness, source selection, and broad invoice summaries
