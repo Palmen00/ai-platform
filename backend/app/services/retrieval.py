@@ -1263,10 +1263,21 @@ class RetrievalService:
         lines = [
             line.strip()
             for line in text.replace("\r", "\n").splitlines()
-            if line.strip() and "," in line
+            if line.strip() and ("," in line or "|" in line)
         ]
         if not lines:
             return []
+        pipe_lines = [line for line in lines if "|" in line]
+        if pipe_lines and len(pipe_lines) >= 2:
+            headers = [part.strip() for part in pipe_lines[0].split("|")]
+            rows: list[dict[str, str]] = []
+            for line in pipe_lines[1:]:
+                values = [part.strip() for part in line.split("|")]
+                if len(values) != len(headers):
+                    continue
+                rows.append(dict(zip(headers, values, strict=False)))
+            if rows:
+                return rows
         try:
             return list(csv.DictReader(io.StringIO("\n".join(lines))))
         except csv.Error:
