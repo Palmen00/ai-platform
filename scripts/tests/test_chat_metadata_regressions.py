@@ -262,7 +262,9 @@ def main() -> None:
     assert "product-style information" in results[5]["reply"]
     assert "\n- " in results[5]["reply"]
     assert len(results[5]["sources"]) >= 2
-    assert writing_results[0] is None
+    assert writing_results[0] is not None
+    assert "Subject:" in writing_results[0]
+    assert "Dear customer" in writing_results[0]
     assert writing_results[1] is None
     assert writing_results[2] is not None
     assert "| Task | Owner | Deadline | Priority | Evidence |" in writing_results[2]

@@ -365,6 +365,9 @@ class RetrievalService:
                 return entity_answer
 
         if self._is_document_writing_task_query(query):
+            customer_email = self._draft_customer_email_from_sources(query, sources)
+            if customer_email:
+                return customer_email
             action_plan = self._draft_action_plan_from_sources(query, sources)
             if action_plan:
                 return action_plan
@@ -950,6 +953,46 @@ class RetrievalService:
             ]
         )
         return "\n".join(lines)
+
+    def _draft_customer_email_from_sources(
+        self,
+        query: str,
+        sources: list[ChatSource],
+    ) -> str | None:
+        lowered = " ".join(query.lower().split())
+        if not any(marker in lowered for marker in ("email", "mail", "customer", "kund")):
+            return None
+        if not sources:
+            return None
+
+        source = sources[0]
+        code = self._extract_reference_code(source.excerpt)
+        subject_detail = code or source.section_title or source.detected_document_type or "document update"
+        evidence = self._format_source_evidence(source)
+
+        return "\n".join(
+            [
+                f"Subject: Update regarding {subject_detail}",
+                "",
+                "Dear customer,",
+                "",
+                "We are contacting you with an update based on the information currently available.",
+                "",
+                "What we know:",
+                f"- Reference: {subject_detail}",
+                f"- Source: {evidence}",
+                "",
+                "What we still need:",
+                "- Incident impact: Unknown from the provided documents",
+                "- Confirmed owner and next action: Unknown from the provided documents",
+                "- Customer-specific details: Unknown from the provided documents",
+                "",
+                "We will follow up when those details have been confirmed.",
+                "",
+                "Best regards,",
+                "Support team",
+            ]
+        )
 
     def _extract_reference_code(self, text: str) -> str | None:
         match = re.search(r"\b[A-Z]{2,}[-_ ]?\d{2,}\b", text or "")
