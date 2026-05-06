@@ -201,6 +201,37 @@ def main() -> None:
             history=follow_up_history,
             is_admin=True,
         )
+        _seed_invoice_fixture(
+            service,
+            original_name="20260506-082332-invoice-aurora-office.txt",
+            company="Nordoffice AB",
+            document_date="2026-04-18",
+            total=6368.75,
+            currency="SEK",
+            line_item="ErgoChair Pro",
+        )
+        _seed_invoice_fixture(
+            service,
+            original_name="20260506-082332-invoice-peak-velo.txt",
+            company="Peak Velo Ltd",
+            document_date="2026-04-21",
+            total=1942.5,
+            currency="SEK",
+            line_item="Carbon Brake Pads",
+        )
+        _seed_invoice_fixture(
+            service,
+            original_name="unrelated-invoice-large-library.pdf",
+            company="Cable Warehouse",
+            document_date="2026-04-23",
+            total=9999,
+            currency="SEK",
+            line_item="Laddningskabel EW-EC3",
+        )
+        batch_product_inventory = service.summarize_document_products(
+            "List the ordered products across invoice batch 20260506-082332.",
+            is_admin=True,
+        )
         generic_code_question = "Can you help me code a c# for loop that says something?"
 
     assert "Newer_upload_older_date.pdf" in results[0]["reply"]
@@ -222,6 +253,10 @@ def main() -> None:
     assert follow_up_invoice_date
     assert newer_by_date.original_name in follow_up_invoice_date
     assert "invoice date 2026-01-10" in follow_up_invoice_date
+    assert batch_product_inventory
+    assert "ErgoChair Pro" in batch_product_inventory
+    assert "Carbon Brake Pads" in batch_product_inventory
+    assert "Laddningskabel" not in batch_product_inventory
     assert not service.is_document_risk_query("And when was the invoice issued?")
     assert service.is_document_invoice_facts_query("And when was the invoice issued?")
     assert not service.is_document_reference_query(generic_code_question)
@@ -233,6 +268,7 @@ def main() -> None:
                 "metadata_results": results,
                 "writing_results": writing_results,
                 "follow_up_invoice_date": follow_up_invoice_date,
+                "batch_product_inventory": batch_product_inventory,
             },
             indent=2,
         )

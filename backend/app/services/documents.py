@@ -2655,6 +2655,10 @@ class DocumentService:
 
             matches.append(document)
 
+        focused_matches = self._filter_documents_by_query_name_markers(matches, query)
+        if focused_matches:
+            matches = focused_matches
+
         matches.sort(
             key=lambda document: self._metadata_match_sort_key(
                 document,
@@ -2664,6 +2668,29 @@ class DocumentService:
             reverse=True,
         )
         return matches
+
+    def _filter_documents_by_query_name_markers(
+        self,
+        documents: list[DocumentRecord],
+        query: str,
+    ) -> list[DocumentRecord]:
+        marker_terms = self._query_name_marker_terms(query)
+        if not marker_terms:
+            return []
+
+        filtered: list[DocumentRecord] = []
+        for document in documents:
+            searchable_name = " ".join(
+                (
+                    self._normalize_document_name(document.original_name),
+                    self._normalize_document_name(document.stored_name),
+                    self._normalize_document_name(document.source_uri or ""),
+                )
+            )
+            if all(term in searchable_name for term in marker_terms):
+                filtered.append(document)
+
+        return filtered
 
     def summarize_documents_by_metadata(
         self,
@@ -6142,6 +6169,40 @@ class DocumentService:
             seen_terms.add(term)
             deduped_terms.append(term)
         return deduped_terms
+
+    def _query_name_marker_terms(self, query: str) -> list[str]:
+        normalized_query = self._normalize_document_name(query)
+        has_marker_context = bool(
+            re.search(r"\b\d{6,}[\s_-]+\d{3,}\b", normalized_query)
+            or re.search(r"\bbatch\b", normalized_query)
+            or re.search(r"\bomgång\b", normalized_query)
+        )
+        if not has_marker_context:
+            return []
+
+        ignored_terms = self._generic_document_reference_terms() | {
+            "batch",
+            "omgang",
+            "invoice",
+            "invoices",
+            "faktura",
+            "fakturor",
+            "product",
+            "products",
+            "ordered",
+            "order",
+            "orders",
+            "list",
+            "across",
+        }
+        marker_terms: list[str] = []
+        for term in self._reference_query_terms(query):
+            if term in ignored_terms:
+                continue
+            if any(character.isdigit() for character in term) or len(term) >= 6:
+                marker_terms.append(term)
+
+        return marker_terms[:4]
 
     def _generic_document_reference_terms(self) -> set[str]:
         terms = {
