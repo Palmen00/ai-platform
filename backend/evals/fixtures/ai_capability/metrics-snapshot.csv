@@ -1,0 +1,6 @@
+service,timestamp,requests,errors,p95_ms,cpu_percent
+api-gateway,2026-05-06T08:00:00Z,12500,25,240,68
+document-indexer,2026-05-06T08:00:00Z,3200,96,910,82
+qdrant,2026-05-06T08:00:00Z,8700,9,115,54
+ollama-runtime,2026-05-06T08:00:00Z,4100,41,1280,91
+storage-worker,2026-05-06T08:00:00Z,2600,1,180,37

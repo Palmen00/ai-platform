@@ -1,0 +1,17 @@
+{
+  "scenario": "document-chat-baseline",
+  "generated_at": "2026-05-06T09:00:00Z",
+  "targets": {
+    "health_p95_ms": 150,
+    "chat_first_token_p95_ms": 3500,
+    "document_upload_p95_ms": 2000,
+    "retrieval_p95_ms": 700
+  },
+  "latest_run": {
+    "health_p95_ms": 88,
+    "chat_first_token_p95_ms": 4200,
+    "document_upload_p95_ms": 1840,
+    "retrieval_p95_ms": 940
+  },
+  "interpretation": "Chat first token and retrieval are above target. Health and upload latency are within target."
+}

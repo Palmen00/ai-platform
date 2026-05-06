@@ -26,9 +26,10 @@ This folder now uses Markdown as the primary documentation format.
 20. [Upload And OCR E2E](./upload-ocr-e2e-2026-04-07.md)
 21. [Natural Prompt Pair Testing](./natural-prompt-pair-testing.md)
 22. [Natural Prompt Scenario Testing](./natural-prompt-scenario-testing.md)
-23. [SharePoint Mock Smoke](./sharepoint-mock-smoke-2026-04-07.md)
-24. [Roadmap](./roadmap.md)
-25. [Latest Session Handoff](./session-handoff-2026-04-05.md)
+23. [AI Capability Test Suite](./ai-capability-test-suite.md)
+24. [SharePoint Mock Smoke](./sharepoint-mock-smoke-2026-04-07.md)
+25. [Roadmap](./roadmap.md)
+26. [Latest Session Handoff](./session-handoff-2026-05-06.md)
 
 ## Notes
 

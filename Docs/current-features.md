@@ -28,6 +28,10 @@ Latest live conversation checks:
 - May 6 Writing workspace: `4/4`
 - May 6 GitHub fresh install on isolated ports `3100/8100/6433`: passed
 - May 6 GitHub update flow after fresh install: passed
+- May 6 broad AI capability suite introduced and expanded to `59` paired
+  perfect/human prompt cases; the latest full live run is intentionally red at
+  `4/59`, exposing retrieval, writing, coding, metrics, and uncertainty quality
+  gaps for the next hardening pass
 
 Current source of truth:
 
@@ -144,6 +148,9 @@ Current source of truth:
 - Reply-quality eval suite for natural document and OCR answers
 - Broader document-coverage eval suite across invoice, roadmap, current-features, OCR, and operating-environment documents
 - Synthetic business-document eval suite across invoices, contracts, policies, quotes, and incident reports
+- Broad AI capability suite with `59` paired perfect/human prompt cases across
+  coding, metrics, statistics, troubleshooting, RAG, writing, and
+  safety/uncertainty
 - Live conversation/system report for the deployed AI server
 - Focused live regression for latest-upload, Swedish invoice/company prompts, amounts, ordered products, bike-related purchases, follow-up questions, and prompt-injection handling
 - Synthetic SharePoint-style Office and code suite now goes `15/15`, including direct content questions for `docx`, `xlsx`, and `pptx`

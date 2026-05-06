@@ -234,11 +234,20 @@ Status: started
   general coding questions staying out of document mode
 - May 6 live QA reports now cover system stability, invoice QA, document
   follow-ups, business document questions, and Writing workspace output shape
-- next step is to keep growing those suites across more document types, negative cases, and business-style answer checks
+- the broad AI capability suite now exists with `59` paired perfect/human
+  prompt cases across coding, metrics, statistics, troubleshooting, RAG, writing,
+  and safety
+- latest full live AI capability run is red at `4/59`, which makes answer
+  synthesis, source ranking, writing fallbacks, code-output quality, and
+  uncertainty detection the next concrete hardening targets
+- next step is to turn those failures into focused regression fixes without
+  making prompts or answers document-specific
 
 ### Next
 
 - keep validating the public GitHub install/update path against release-candidate commits
+- work down the red AI capability suite by category, starting with RAG/source
+  ranking and Writing workspace output shape
 - add a visible operator button for stale document-intelligence refreshes and stuck processing/indexing cases
 - keep the live duplicate-upload smoke test in the standard pre-push suite
 - expand the live conversation suite with more invoice/product/date questions from the real uploaded library
