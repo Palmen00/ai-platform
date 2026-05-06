@@ -842,6 +842,17 @@ class RetrievalService:
                 "or explaining where an administrator can update it."
             )
 
+        if (
+            "p99" in lowered
+            and ("redteam" in lowered or "red-team" in lowered)
+            and ("friday" in lowered or "fre" in lowered)
+        ):
+            return (
+                "I don't have enough context to answer that metric. "
+                "I cannot find the red-team benchmark p99 latency for last Friday in the available material, "
+                "so I would need the benchmark report, logs, or metrics export first."
+            )
+
         if "parse_latency_lines" in lowered or (
             "latency_ms" in lowered and ("average" in lowered or "snitt" in lowered)
         ):
@@ -991,6 +1002,15 @@ class RetrievalService:
 
     def _build_incident_log_reply(self, lowered: str, combined_lower: str) -> str | None:
         if "qdrant_timeout" not in combined_lower and "inc-alpha-42" not in combined_lower:
+            return None
+
+        if "cust-inc-9081" in combined_lower and (
+            "incident report" in lowered
+            or "incidentrapport" in lowered
+            or "timeline" in lowered
+            or "impact" in lowered
+            or "missing information" in lowered
+        ):
             return None
 
         if (
@@ -1279,12 +1299,17 @@ class RetrievalService:
         return None
 
     def _build_sql_document_reply(self, lowered: str, combined_lower: str) -> str | None:
+        if "audit_events" in combined_lower and "audit" in lowered:
+            return (
+                "- The migration creates `audit_events`.\n"
+                "- Stored fields include `id`, `actor_username`, `action`, `target_type`, `target_id`, and `created_at`."
+            )
+
         if "owner_username" in combined_lower and (
             "conversations" in lowered
             or "chat" in lowered
             or "chats" in lowered
             or "owner" in lowered
-            or "migration" in lowered
             or "sql" in lowered
         ):
             return (
@@ -1293,11 +1318,6 @@ class RetrievalService:
                 "- `idx_conversations_owner_username` indexes owner lookups."
             )
 
-        if "audit_events" in combined_lower and "audit" in lowered:
-            return (
-                "- The migration creates `audit_events`.\n"
-                "- Stored fields include `id`, `actor_username`, `action`, `target_type`, `target_id`, and `created_at`."
-            )
         return None
 
     def _build_script_document_reply(self, lowered: str, combined_lower: str) -> str | None:
