@@ -141,11 +141,10 @@ class VectorStoreService:
             )
 
         results = self._call_with_retry(
-            lambda client: client.search(
-                collection_name=self.collection_name,
+            lambda client: self._search_points(
+                client,
                 query_vector=query_vector,
                 limit=limit,
-                with_payload=True,
                 query_filter=query_filter,
             )
         )
@@ -186,6 +185,32 @@ class VectorStoreService:
             )
 
         return sources
+
+    def _search_points(
+        self,
+        client: QdrantClient,
+        *,
+        query_vector: list[float],
+        limit: int,
+        query_filter: models.Filter | None,
+    ):
+        if hasattr(client, "search"):
+            return client.search(
+                collection_name=self.collection_name,
+                query_vector=query_vector,
+                limit=limit,
+                with_payload=True,
+                query_filter=query_filter,
+            )
+
+        response = client.query_points(
+            collection_name=self.collection_name,
+            query=query_vector,
+            limit=limit,
+            with_payload=True,
+            query_filter=query_filter,
+        )
+        return getattr(response, "points", response)
 
     def _ensure_collection(self, vector_size: int) -> None:
         if self._collection_exists():

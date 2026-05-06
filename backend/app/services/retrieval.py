@@ -9,6 +9,7 @@ from app.schemas.chat import ChatSource
 from app.schemas.chat import RetrievalDebug
 from app.services.documents import DocumentService
 from app.services.embeddings import EmbeddingService
+from app.services.logging_service import log_event
 from app.services.vector_store import VectorStoreService
 from app.config import settings
 
@@ -443,6 +444,13 @@ class RetrievalService:
         if structured_knowledge_answer:
             return structured_knowledge_answer
 
+        structured_value_answer = self._summarize_structured_value_from_sources(
+            query,
+            sources,
+        )
+        if structured_value_answer:
+            return structured_value_answer
+
         if self._is_document_writing_task_query(query):
             customer_email = self._draft_customer_email_from_sources(query, sources)
             if customer_email:
@@ -549,13 +557,6 @@ class RetrievalService:
             )
             if risk_answer:
                 return risk_answer
-
-        structured_value_answer = self._summarize_structured_value_from_sources(
-            query,
-            sources,
-        )
-        if structured_value_answer:
-            return structured_value_answer
 
         if not (
             self.document_service.is_document_reference_query(query)
@@ -2112,6 +2113,30 @@ class RetrievalService:
             return None
 
         lowered = " ".join(query.lower().split())
+        requested_labels = self._requested_structured_labels(lowered)
+        if requested_labels:
+            source_answers: list[str] = []
+            for source in self._unique_sources_by_document(sources)[:3]:
+                text = self.document_service.get_extracted_text(source.document_id)
+                if not text:
+                    text = source.excerpt
+                extracted_values = self._extract_labeled_values(text, requested_labels)
+                if not extracted_values:
+                    continue
+
+                if len(extracted_values) == 1:
+                    label, value = next(iter(extracted_values.items()))
+                    source_answers.append(f"{source.document_name}: {label}: {value}.")
+                else:
+                    values = "\n".join(
+                        f"- {label}: {value}"
+                        for label, value in extracted_values.items()
+                    )
+                    source_answers.append(f"{source.document_name}:\n{values}")
+
+            if source_answers:
+                return "\n\n".join(source_answers)
+
         if "port" not in lowered:
             return None
         if not any(marker in lowered for marker in ("xml", "config", "service")):
@@ -2134,6 +2159,41 @@ class RetrievalService:
                 )
 
         return None
+
+    def _requested_structured_labels(self, lowered: str) -> list[str]:
+        labels: list[str] = []
+        if "unique retrieval key" in lowered or (
+            "retrieval" in lowered and "key" in lowered
+        ) or "key-" in lowered:
+            labels.append("Unique retrieval key")
+        if "topic family" in lowered or "topic" in lowered:
+            labels.append("Topic family")
+        if "primary entity" in lowered or "entity" in lowered:
+            labels.append("Primary entity")
+        if (
+            "semantic description" in lowered
+            or "description" in lowered
+            or "what is" in lowered
+            or "what's" in lowered
+            or "about" in lowered
+        ):
+            labels.append("Semantic description")
+        if "metric" in lowered or "latency" in lowered or "error count" in lowered:
+            labels.append("Metric snapshot")
+
+        return list(dict.fromkeys(labels))
+
+    def _extract_labeled_values(self, text: str, labels: list[str]) -> dict[str, str]:
+        values: dict[str, str] = {}
+        for label in labels:
+            pattern = rf"(?im)^\s*{re.escape(label)}\s*:\s*(.+?)\s*$"
+            match = re.search(pattern, text)
+            if not match:
+                continue
+            value = " ".join(match.group(1).split()).strip(" .")
+            if value:
+                values[label] = value
+        return values
 
     def _extract_config_port_value(self, text: str) -> str | None:
         patterns = (
@@ -2280,7 +2340,15 @@ class RetrievalService:
                 limit=limit,
                 allowed_document_ids=allowed_document_ids,
             )
-        except Exception:
+        except Exception as exc:
+            log_event(
+                "retrieval.semantic_search_failed",
+                "Semantic vector retrieval failed.",
+                status="warning",
+                category="retrieval",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
             return []
 
     def _merge_sources(
