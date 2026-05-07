@@ -1,6 +1,6 @@
 # Roadmap
 
-## Project Status - May 6, 2026
+## Project Status - May 7, 2026
 
 Status: MVP hardening on a real Linux server.
 
@@ -12,13 +12,12 @@ retrieval over a realistic document library.
 Current live baseline:
 
 - backend health: `ok`
+- frontend health: HTTP `200`
 - Ollama: `ok`
 - Qdrant: `ok`
-- uploaded documents: `165`
-- processed/indexed documents: `165 / 165`
+- uploaded documents: `191`
+- Qdrant indexed points: `2127`
 - failed documents: `0`
-- known stuck document: none; `Google cert.pdf` was retried and is now processed/indexed
-- document-intelligence stale/background backlog: `0`
 - full live conversation suite before the final Swedish/natural-language patch: `26/30`
 - focused live regression after the final retrieval patch: `8/8`
 - live regression after source workflow, invoice-intelligence, and Writing
@@ -31,12 +30,16 @@ Current live baseline:
   - Writing workspace: `4/4`
   - GitHub fresh install on isolated ports `3100/8100/6433`: passed
   - GitHub update flow after fresh install: passed
+- May 7 live validation:
+  - invoice document QA: `14/14`
+  - production hardening: `10/10`, critical failures `0`
+  - runtime profile: status `ok`
+  - frontend deploy/build: passed
 
 Important current caveat:
 
-- the May 6 fixes are committed and pushed to `main`, and the live server is
-  aligned to the validated runtime baseline. A safety stash from the earlier
-  manual deploy remains on the server, but the working tree is clean.
+- the May 7 fixes are deployed on the live server. Commit/push the local changes
+  before treating this as the new GitHub install baseline.
 
 ## Phase 1: Foundation
 

@@ -141,6 +141,17 @@ def _build_fixtures(base_dir: Path, run_id: str) -> list[tuple[InvoiceFixture, P
             currency="SEK",
             products=["Carbon Brake Pads", "Workshop Tune-up"],
         ),
+        InvoiceFixture(
+            key="cloud",
+            filename=f"{run_id}-invoice-helio-cloud.txt",
+            vendor="Helio Cloud GmbH",
+            invoice_number="HC-2026-332",
+            invoice_date="2026-04-24",
+            due_date="2026-05-08",
+            total="12000.00",
+            currency="SEK",
+            products=["LLM Compute Credits", "Vector Storage Add-on", "Priority Support Package"],
+        ),
     ]
 
     bodies = {
@@ -180,6 +191,25 @@ def _build_fixtures(base_dir: Path, run_id: str) -> list[tuple[InvoiceFixture, P
             Tax: 388.50
             Total: 1942.50 SEK
             Notes: Bicycle maintenance order.
+        """,
+        "cloud": """
+            Invoice
+            Vendor: Helio Cloud GmbH
+            Customer: Oskar Palm
+            Invoice No: HC-2026-332
+            Invoice Date: 2026-04-24
+            Due Date: 2026-05-08
+            Currency: SEK
+
+            Item | SKU | Quantity | Unit Price | Total
+            LLM Compute Credits | LLM-CRED-100K | 4 | 1750.00 | 7000.00
+            Vector Storage Add-on | VEC-STORE-2TB | 1 | 2500.00 | 2500.00
+            Priority Support Package | SUPPORT-PRI | 1 | 100.00 | 100.00
+
+            Subtotal: 9600.00
+            Tax: 2400.00
+            Total: 12000.00 SEK
+            Notes: Cloud AI runtime order.
         """,
     }
 
@@ -332,6 +362,11 @@ def _delete_document(session: requests.Session, base_url: str, document_id: str)
         raise TestFailure(f"Delete failed for {document_id}: {response.status_code} {response.text[:500]}")
 
 
+def _sum_totals(fixtures: list[InvoiceFixture]) -> str:
+    total = sum(float(fixture.total) for fixture in fixtures)
+    return f"{total:.2f}"
+
+
 def _write_report(path: Path, metadata: dict[str, Any], results: list[InvoiceResult]) -> None:
     passed = sum(1 for result in results if result.ok)
     lines = [
@@ -406,6 +441,8 @@ def run(args: argparse.Namespace) -> int:
             )
         )
 
+    uploaded_ids = [str(document["id"]) for _, document in uploaded]
+
     bike_fixture, bike_document = next(item for item in uploaded if item[0].key == "bike")
     question = f"Which invoice mentions {bike_fixture.products[0]}?"
     results.append(
@@ -419,13 +456,58 @@ def run(args: argparse.Namespace) -> int:
     )
 
     question = f"List the ordered products across invoice batch {run_id}."
-    all_products = [uploaded[0][0].products[0], uploaded[1][0].products[0]]
+    all_products = [fixture.products[0] for fixture, _document in uploaded]
     results.append(
         _result(
             key="cross_invoice_product_inventory",
             question=question,
-            payload=_ask(session, args.base_url, model, question),
+            payload=_ask(session, args.base_url, model, question, uploaded_ids),
             expected_terms=all_products,
+            expected_source_fragments=[],
+        )
+    )
+
+    cloud_fixture, cloud_document = next(item for item in uploaded if item[0].key == "cloud")
+    question = f"Which invoice in batch {run_id} has the highest total amount?"
+    results.append(
+        _result(
+            key="highest_invoice_total",
+            question=question,
+            payload=_ask(session, args.base_url, model, question, uploaded_ids),
+            expected_terms=[
+                str(cloud_document["original_name"]),
+                cloud_fixture.vendor,
+                cloud_fixture.total,
+            ],
+            expected_source_fragments=[str(cloud_document["original_name"])],
+        )
+    )
+
+    question = f"Summarize invoice totals by supplier across batch {run_id}."
+    results.append(
+        _result(
+            key="supplier_total_breakdown",
+            question=question,
+            payload=_ask(session, args.base_url, model, question, uploaded_ids),
+            expected_terms=[
+                uploaded[0][0].vendor,
+                uploaded[1][0].vendor,
+                uploaded[2][0].vendor,
+                uploaded[0][0].total,
+                uploaded[1][0].total,
+                uploaded[2][0].total,
+            ],
+            expected_source_fragments=[],
+        )
+    )
+
+    question = f"What is the total spend across the invoices in batch {run_id}?"
+    results.append(
+        _result(
+            key="batch_total_spend",
+            question=question,
+            payload=_ask(session, args.base_url, model, question, uploaded_ids),
+            expected_terms=[_sum_totals([fixture for fixture, _document in uploaded])],
             expected_source_fragments=[],
         )
     )

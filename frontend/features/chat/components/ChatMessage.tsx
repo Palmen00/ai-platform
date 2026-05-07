@@ -10,7 +10,11 @@ type ChatMessageProps = {
     chunkIndex: number,
     excerpt: string
   ) => void;
-  onAskSource?: (documentId: string, documentName: string) => void;
+  onAskSource?: (
+    documentId: string,
+    documentName: string,
+    prompt?: string
+  ) => void;
   onCompareSource?: (documentId: string, documentName: string) => void;
 };
 
@@ -73,6 +77,19 @@ function getConfidenceTone(confidence: "low" | "medium" | "high") {
   }
 
   return "bg-rose-50 text-rose-700 ring-rose-200";
+}
+
+function isCommercialSource(source: ChatSource) {
+  const type = (source.detected_document_type ?? "").toLowerCase();
+  const name = source.document_name.toLowerCase();
+  return (
+    ["invoice", "receipt", "quote"].includes(type) ||
+    name.includes("invoice") ||
+    name.includes("faktura") ||
+    name.includes("receipt") ||
+    name.includes("kvitto") ||
+    name.includes("quote")
+  );
 }
 
 function collapseSources(sources: ChatSource[]) {
@@ -343,6 +360,34 @@ export function ChatMessage({
                     >
                       {siteConfig.chat.sourceAskLabel}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        onAskSource?.(
+                          source.document_id,
+                          source.document_name,
+                          `Summarize ${source.document_name}. Start with what it is, then list the most important facts, dates, amounts, risks, and missing information.`
+                        )
+                      }
+                      className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+                    >
+                      {siteConfig.chat.sourceAskSummaryLabel}
+                    </button>
+                    {isCommercialSource(source) && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onAskSource?.(
+                            source.document_id,
+                            source.document_name,
+                            `For ${source.document_name}, list supplier, invoice number, invoice date, due date, total amount, ordered products or services, and any missing invoice fields. Use bullet points and only use this selected source.`
+                          )
+                        }
+                        className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-100"
+                      >
+                        {siteConfig.chat.sourceAskInvoiceLabel}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() =>

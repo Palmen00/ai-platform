@@ -353,11 +353,15 @@ function ChatPageContent() {
     setPreviewHighlightExcerpt("");
   }
 
-  function askAboutSource(documentId: string, documentName: string) {
+  function askAboutSource(
+    documentId: string,
+    documentName: string,
+    prompt?: string
+  ) {
     setSelectedDocumentIds([documentId]);
     setInput((current) => {
-      const prefix = `About ${documentName}: `;
-      return current.trim() ? `${current.trim()}\n\n${prefix}` : prefix;
+      const nextPrompt = prompt || `About ${documentName}: `;
+      return current.trim() ? `${current.trim()}\n\n${nextPrompt}` : nextPrompt;
     });
     window.setTimeout(() => inputRef.current?.focus(), 0);
   }

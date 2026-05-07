@@ -434,6 +434,17 @@ class RetrievalService:
             if entity_answer:
                 return entity_answer
 
+        if self.document_service.is_document_product_query(query):
+            product_answer = self.document_service.summarize_document_products(
+                query,
+                history=history,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if product_answer:
+                return product_answer
+
         structured_knowledge_answer = self._build_structured_knowledge_reply(
             query=query,
             sources=sources,

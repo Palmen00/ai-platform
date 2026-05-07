@@ -104,6 +104,27 @@ export const siteConfig = {
           "Create a management summary from the relevant uploaded documents. Lead with the most important conclusion, then list key facts, risks, costs or amounts if available, decisions needed, and recommended next actions. Keep it concise and source-grounded.",
       },
       {
+        id: "invoice-analysis",
+        label: "Invoice analysis",
+        description: "Extract purchases, dates, suppliers, totals, and gaps.",
+        prompt:
+          "Analyze the relevant invoice, receipt, or quote documents. Start with a short answer, then list supplier, invoice number, invoice date, due date, total amount, ordered products or services, and any missing fields. If multiple documents match, group the answer by source and do not mix unrelated invoices.",
+      },
+      {
+        id: "source-comparison",
+        label: "Source comparison",
+        description: "Compare invoices, incidents, contracts, or reports.",
+        prompt:
+          "Compare the selected or most relevant sources. Start by naming the sources, then list key differences in dates, totals, suppliers, products, risks, decisions, and missing information. Use bullet points and keep every claim tied to the documents.",
+      },
+      {
+        id: "support-reply",
+        label: "Support reply",
+        description: "Draft a careful customer-safe support answer.",
+        prompt:
+          "Write a customer-safe support reply based only on the uploaded documents. Include a short subject, what we know, what we are checking next, what the customer can do now, and what is still unknown. Do not promise compensation, root cause, or timelines unless the source explicitly says so.",
+      },
+      {
         id: "action-plan",
         label: "Action plan",
         description: "Extract owners, tasks, and follow-ups.",
@@ -148,6 +169,8 @@ export const siteConfig = {
     sourcesTitle: "Sources",
     sourceOpenLabel: "Open source",
     sourceAskLabel: "Ask about this source",
+    sourceAskInvoiceLabel: "Invoice facts",
+    sourceAskSummaryLabel: "Source summary",
     sourcePreviewLabel: "Preview excerpt",
     sourceCompareLabel: "Compare",
     sourceScoreLabel: "Score",

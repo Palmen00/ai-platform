@@ -2093,7 +2093,38 @@ class DocumentService:
             "line item",
             "did i order",
         )
-        return any(marker in lowered for marker in product_markers)
+        if any(marker in lowered for marker in product_markers):
+            return True
+
+        invoice_lookup_context = (
+            "invoice" in lowered
+            or "invoices" in lowered
+            or "receipt" in lowered
+            or "receipts" in lowered
+            or "faktura" in lowered
+            or "fakturor" in lowered
+            or "kvitto" in lowered
+            or "kvitton" in lowered
+        )
+        mention_lookup = any(
+            marker in lowered
+            for marker in (
+                "mention",
+                "mentions",
+                "mentioned",
+                "contain",
+                "contains",
+                "include",
+                "includes",
+                "where can",
+                "where is",
+                "which invoice",
+                "which receipt",
+            )
+        )
+        return invoice_lookup_context and mention_lookup and bool(
+            self._product_lookup_terms(query)
+        )
 
     def is_document_invoice_facts_query(self, query: str) -> bool:
         lowered = " ".join(self._strip_accents(query).lower().split())
@@ -2123,6 +2154,12 @@ class DocumentService:
             "betalat",
             "kostnad",
             "kostnader",
+            "spend",
+            "spent",
+            "sum",
+            "summera",
+            "total cost",
+            "total spend",
         )
         payment_markers = (
             "belopp",
@@ -2220,6 +2257,15 @@ class DocumentService:
                 "fakturorna",
                 "totalsummor",
                 "belopp",
+                "sum",
+                "spend",
+                "spent",
+                "total spend",
+                "total cost",
+                "by supplier",
+                "per supplier",
+                "by vendor",
+                "per vendor",
                 "lista",
             )
         )
@@ -3134,6 +3180,19 @@ class DocumentService:
         is_admin: bool = False,
         viewer_username: str | None = None,
     ) -> str | None:
+        if self._is_product_lookup_query(query):
+            matching_product_documents = self._find_documents_by_product_terms(
+                query,
+                allowed_document_ids=allowed_document_ids,
+                is_admin=is_admin,
+                viewer_username=viewer_username,
+            )
+            if matching_product_documents:
+                return self._summarize_products_for_documents(
+                    matching_product_documents
+                )
+            return None
+
         requested_type = self.extract_requested_document_type(query)
         if requested_type and self.is_multi_document_product_query(query):
             matching_documents = self.find_documents_by_metadata(
@@ -3233,7 +3292,25 @@ class DocumentService:
                 is_admin=is_admin,
                 viewer_username=viewer_username,
             )
-            if not resolved_document_ids:
+            if resolved_document_ids:
+                resolved_documents = [
+                    document
+                    for document_id in resolved_document_ids
+                    if (
+                        document := self.get_document_for_viewer(
+                            document_id,
+                            is_admin=is_admin,
+                            viewer_username=viewer_username,
+                        )
+                    )
+                ]
+                multi_answer = self._summarize_commercial_facts_for_documents(
+                    resolved_documents,
+                    query=query,
+                )
+                if multi_answer:
+                    return multi_answer
+            else:
                 matching_documents = self.find_documents_by_metadata(
                     query,
                     allowed_document_ids=allowed_document_ids,
@@ -3250,7 +3327,8 @@ class DocumentService:
                     )
                 if matching_documents:
                     return self._summarize_commercial_facts_for_documents(
-                        matching_documents
+                        matching_documents,
+                        query=query,
                     )
 
         document = self.resolve_primary_document(
@@ -3367,7 +3445,8 @@ class DocumentService:
         if not match:
             return None
         value = match.group(1).strip().replace("_", "-").replace(" ", "-")
-        if value.lower() in {"q2", "q3", "q4"}:
+        lowered_value = value.lower()
+        if lowered_value in {"q2", "q3", "q4"} or lowered_value.startswith("batch-"):
             return None
         if not any(character.isdigit() for character in value):
             return None
@@ -5825,6 +5904,112 @@ class DocumentService:
             details.append(effective_total)
         return f" ({', '.join(details)})" if details else ""
 
+    def _is_product_lookup_query(self, query: str) -> bool:
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        lookup_markers = (
+            "mention",
+            "mentions",
+            "mentioned",
+            "contain",
+            "contains",
+            "include",
+            "includes",
+            "where can",
+            "where is",
+            "which invoice",
+            "which receipt",
+            "vilken faktura",
+            "vilket kvitto",
+        )
+        return any(marker in lowered for marker in lookup_markers) and bool(
+            self._product_lookup_terms(query)
+        )
+
+    def _product_lookup_terms(self, query: str) -> list[str]:
+        topic_phrase = self.extract_topic_phrase(query)
+        searchable = topic_phrase or query
+        ignored_terms = self._generic_document_reference_terms() | {
+            "batch",
+            "across",
+            "among",
+            "invoice",
+            "invoices",
+            "receipt",
+            "receipts",
+            "faktura",
+            "fakturor",
+            "kvitto",
+            "kvitton",
+            "mention",
+            "mentions",
+            "mentioned",
+            "contain",
+            "contains",
+            "include",
+            "includes",
+            "where",
+            "which",
+            "vilken",
+            "vilket",
+        }
+        terms: list[str] = []
+        for term in self._query_terms(self._strip_accents(searchable).lower()):
+            if term in ignored_terms or term.isdigit():
+                continue
+            terms.append(term)
+        return terms
+
+    def _find_documents_by_product_terms(
+        self,
+        query: str,
+        *,
+        allowed_document_ids: list[str] | None = None,
+        is_admin: bool = False,
+        viewer_username: str | None = None,
+    ) -> list[DocumentRecord]:
+        lookup_terms = self._product_lookup_terms(query)
+        if not lookup_terms:
+            return []
+
+        topic_phrase = self.extract_topic_phrase(query) or ""
+        normalized_topic = self._normalize_lookup_phrase(topic_phrase)
+        allowed_document_id_set = set(allowed_document_ids or [])
+        ranked_documents: list[tuple[int, DocumentRecord]] = []
+
+        for document in self.list_uploaded_documents(
+            is_admin=is_admin,
+            viewer_username=viewer_username,
+        ):
+            if allowed_document_id_set and document.id not in allowed_document_id_set:
+                continue
+            evidences = self._extract_document_product_evidence(document)
+            if not evidences:
+                continue
+
+            evidence_text = " ".join(evidences)
+            normalized_evidence = self._normalize_lookup_phrase(evidence_text)
+            evidence_terms = set(self._query_terms(normalized_evidence))
+            overlap = [
+                term
+                for term in lookup_terms
+                if term in evidence_terms or term in normalized_evidence
+            ]
+            required_overlap = min(2, len(lookup_terms))
+            if len(overlap) < required_overlap:
+                continue
+
+            phrase_bonus = 2 if normalized_topic and normalized_topic in normalized_evidence else 0
+            ranked_documents.append((len(overlap) + phrase_bonus, document))
+
+        ranked_documents.sort(key=lambda item: item[0], reverse=True)
+        return [document for _score, document in ranked_documents[:6]]
+
+    def _normalize_lookup_phrase(self, value: str) -> str:
+        normalized = self._strip_accents(str(value or "")).lower()
+        normalized = normalized.replace("_", " ").replace("-", " ")
+        normalized = re.sub(r"[^a-z0-9]+", " ", normalized)
+        return re.sub(r"\s+", " ", normalized).strip()
+
     def _summarize_products_for_documents(
         self,
         documents: list[DocumentRecord],
@@ -5902,6 +6087,8 @@ class DocumentService:
     def _summarize_commercial_facts_for_documents(
         self,
         documents: list[DocumentRecord],
+        *,
+        query: str = "",
     ) -> str | None:
         commercial_rows: list[tuple[DocumentRecord, DocumentCommercialSummary]] = []
         for document in documents:
@@ -5913,11 +6100,14 @@ class DocumentService:
             return None
 
         rendered_rows: list[str] = []
+        total_rows: list[tuple[DocumentRecord, DocumentCommercialSummary, float, str | None]] = []
+        supplier_totals: dict[str, tuple[float, str | None]] = {}
         for document, summary in commercial_rows[:6]:
             details: list[str] = []
             companies = self._document_company_candidates(document)
+            supplier_label = self._join_phrases(companies[:2]) if companies else document.original_name
             if companies:
-                details.append(f"supplier {self._join_phrases(companies[:2])}")
+                details.append(f"supplier {supplier_label}")
             if summary.invoice_number:
                 details.append(f"invoice {summary.invoice_number}")
             if summary.invoice_date:
@@ -5929,6 +6119,18 @@ class DocumentService:
             effective_total = self._commercial_effective_total_label(summary)
             if effective_total:
                 details.append(effective_total)
+            total_info = self._commercial_effective_total_value(summary)
+            if total_info:
+                total_value, total_currency, _label = total_info
+                total_rows.append((document, summary, total_value, total_currency))
+                current_value, current_currency = supplier_totals.get(
+                    supplier_label,
+                    (0.0, total_currency),
+                )
+                supplier_totals[supplier_label] = (
+                    current_value + total_value,
+                    current_currency or total_currency,
+                )
 
             line_items = [
                 item.description
@@ -5946,9 +6148,72 @@ class DocumentService:
         if len(commercial_rows) > len(rendered_rows):
             suffix = f"\nI found {len(commercial_rows) - len(rendered_rows)} more matching invoice-style documents."
 
-        return (
+        lowered = " ".join(self._strip_accents(query).lower().split())
+        aggregate_lines: list[str] = []
+        wants_totals = any(
+            marker in lowered
+            for marker in (
+                "total",
+                "totals",
+                "amount",
+                "amounts",
+                "cost",
+                "costs",
+                "spend",
+                "spent",
+                "sum",
+                "summa",
+                "kostnad",
+                "kostnader",
+                "belopp",
+            )
+        )
+        if wants_totals and total_rows:
+            total_by_currency: dict[str, float] = {}
+            for _document, _summary, value, currency in total_rows:
+                key = currency or "unknown currency"
+                total_by_currency[key] = total_by_currency.get(key, 0.0) + value
+            total_labels = [
+                self._format_commercial_money(value, None if currency == "unknown currency" else currency)
+                if currency != "unknown currency"
+                else self._format_commercial_money(value)
+                for currency, value in total_by_currency.items()
+            ]
+            aggregate_lines.append(
+                f"Total across the matching invoice-style documents: {self._join_phrases(total_labels)}."
+            )
+
+        wants_supplier_breakdown = any(
+            marker in lowered
+            for marker in (
+                "per supplier",
+                "by supplier",
+                "per vendor",
+                "by vendor",
+                "leverantor",
+                "leverantorer",
+                "supplier",
+                "vendor",
+            )
+        )
+        if wants_supplier_breakdown and supplier_totals:
+            aggregate_lines.append(
+                "Supplier totals:\n"
+                + "\n".join(
+                    f"- {supplier}: {self._format_commercial_money(value, currency)}"
+                    for supplier, (value, currency) in sorted(supplier_totals.items())
+                )
+            )
+
+        lead = (
             f"I found invoice-style facts in {len(commercial_rows)} matching documents. "
-            "Key entries:\n"
+        )
+        if aggregate_lines:
+            lead += " ".join(aggregate_lines) + "\n"
+
+        return (
+            lead
+            + "Key entries:\n"
             + "\n".join(f"- {row}" for row in rendered_rows)
             + suffix
         )
